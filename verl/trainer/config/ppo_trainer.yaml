@@ -414,7 +414,7 @@ actor_rollout_ref:
     name: vllm
 
     # sync: LLM, async: AsyncLLM
-    mode: async
+    mode: sync
 
     # Sampling temperature for rollout.
     temperature: 1.0
@@ -584,6 +584,15 @@ critic:
 
     # Warmup steps ratio; total steps will be injected at runtime
     lr_warmup_steps_ratio: 0.
+    lr_decay_steps: null
+    lr_warmup_steps: -1
+    lr_warmup_init: 0.0  # initial learning rate for warmup, default to 0.0
+    min_lr: 0.0
+    weight_decay_incr_style: constant # select from constant/linear/cosine
+    lr_wsd_decay_style: exponential # select from constant/exponential/cosine
+    lr_wsd_decay_steps: null
+    use_checkpoint_opt_param_scheduler: False # use checkpoint optimizer parameter scheduler
+    lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
 
     # Minimum LR ratio for cosine schedule
     min_lr_ratio: null
