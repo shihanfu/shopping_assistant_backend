@@ -11,16 +11,16 @@ data:
   tokenizer: null
 
   # Whether to use shared memory for data loading.
-  use_shm: False
+  use_shm: true
 
   # Training set parquet. Can be a list or a single file.
   # The program will read all files into memory, so it can't be too large (< 100GB).
   # The path can be either a local path or an HDFS path.
   # For HDFS path, we provide utils to download it to DRAM and convert it to a local path.
-  train_files: ~/data/rlhf/gsm8k/train.parquet
+  train_files: /root/data/gsm8k/train.parquet
 
   # Validation parquet. Can be a list or a single file.
-  val_files: ~/data/rlhf/gsm8k/test.parquet
+  val_files: /root/data/gsm8k/test.parquet
 
   # The field in the dataset where the prompt is located. Default is 'prompt'.
   prompt_key: prompt
@@ -33,10 +33,10 @@ data:
   max_prompt_length: 512
 
   # Maximum response length. Rollout in RL algorithms (e.g. PPO) generates up to this length.
-  max_response_length: 512
+  max_response_length: 256
 
   # Batch size sampled for one training iteration of different RL algorithms.
-  train_batch_size: 1024
+  train_batch_size: 256
 
   # Batch size used during validation. Can be null.
   val_batch_size: null
@@ -47,7 +47,7 @@ data:
   return_raw_input_ids: False
 
   # Whether to return the original chat (prompt) without applying chat template.
-  return_raw_chat: False
+  return_raw_chat: True
 
   # Whether to return the full prompt with chat template.
   return_full_prompt: False
@@ -100,11 +100,8 @@ actor_rollout_ref:
     # Huggingface model path. This can be either local path or HDFS path.
     path: ~/models/deepseek-llm-7b-chat
 
-    # Custom chat template for the model.
-    custom_chat_template: null
-
     # Whether to use shared memory (SHM) for accelerating the loading of model weights
-    use_shm: false
+    use_shm: true
 
     # Additional Python packages to register huggingface models/tokenizers.
     external_lib: null
@@ -151,16 +148,16 @@ actor_rollout_ref:
 
     # fsdp, fsdp2 or megatron. fsdp backend used here.
     strategy: fsdp
-
+    
     # Split each sample into sub-batches of this size for PPO
     ppo_mini_batch_size: 256
-
+    
     # [Deprecated] Global micro batch size
     ppo_micro_batch_size: null
 
     # Local per-GPU micro batch size
     ppo_micro_batch_size_per_gpu: null
-
+    
     # Whether to automatically adjust batch size at runtime
     use_dynamic_bsz: false
 
@@ -301,6 +298,22 @@ actor_rollout_ref:
       # Only for FSDP1: FSDP1 configuration, prefetch the next forward-pass all-gather
       # before the current forward computation.
       forward_prefetch: False
+    megatron:
+      param_offload: False
+      grad_offload: False
+      optimizer_offload: False
+      tensor_model_parallel_size: 2
+      expert_model_parallel_size: 1
+      expert_tensor_parallel_size: null
+      pipeline_model_parallel_size: 2
+      virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+      context_parallel_size: 2
+      sequence_parallel: True
+      use_distributed_optimizer: True
+      use_dist_checkpointing: False
+      dist_checkpointing_path: null
+      seed: 42
+      override_transformer_config: {} # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
 
     # profiler configs
     profiler:
@@ -319,7 +332,7 @@ actor_rollout_ref:
   ref:
 
     # actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it’s recommended to turn on offload for ref by default
-    strategy: ${actor_rollout_ref.actor.strategy}
+    strategy: fsdp
 
     # config for FSDP strategy
     fsdp_config:
@@ -340,6 +353,22 @@ actor_rollout_ref:
 
         # minimum number of params in a wrapped module
         min_num_params: 0
+    megatron:
+      param_offload: False
+      grad_offload: False
+      optimizer_offload: False
+      tensor_model_parallel_size: 1
+      expert_model_parallel_size: 1
+      expert_tensor_parallel_size: null
+      pipeline_model_parallel_size: 1
+      virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+      context_parallel_size: 1
+      sequence_parallel: True
+      use_distributed_optimizer: True
+      use_dist_checkpointing: False
+      dist_checkpointing_path: null
+      seed: 42
+      override_transformer_config: {} # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
 
     # whether to enable torch.compile
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
@@ -349,7 +378,7 @@ actor_rollout_ref:
     log_prob_micro_batch_size: null
 
     # The batch size for one forward pass in the computation of log_prob. Local batch size per GPU.
-    log_prob_micro_batch_size_per_gpu: null
+    log_prob_micro_batch_size_per_gpu: 4
 
     # enable dynamic batch size (sequence packing) for log_prob computation
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
@@ -385,7 +414,7 @@ actor_rollout_ref:
     name: vllm
 
     # sync: LLM, async: AsyncLLM
-    mode: sync
+    mode: async
 
     # Sampling temperature for rollout.
     temperature: 1.0
@@ -410,16 +439,16 @@ actor_rollout_ref:
     dtype: bfloat16
 
     # Fraction of GPU memory used by vLLM/SGLang for KV cache.
-    gpu_memory_utilization: 0.5
+    gpu_memory_utilization: 0.4
 
     # Whether to ignore EOS and continue generating after EOS is hit.
     ignore_eos: False
 
     # Whether to disable CUDA graph. Default True to allow cache freeing.
-    enforce_eager: True
+    enforce_eager: False
 
     # Whether to free engine KVCache after generation. Set enforce_eager=True when enabled.
-    free_cache_engine: True
+    free_cache_engine: False
 
     # Which loader to use for rollout model weights: dummy_dtensor, hf, megatron, etc.
     # safetensors (for huge model, and set use_shm=True); dummy_dtensor: randomly init model weight
@@ -444,7 +473,7 @@ actor_rollout_ref:
     log_prob_micro_batch_size: null
 
     # The batch size for one forward pass in the computation of log_prob. Local batch size per GPU.
-    log_prob_micro_batch_size_per_gpu: null
+    log_prob_micro_batch_size_per_gpu: 8
 
     # enable dynamic batch size (sequence packing) for log_prob computation
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
@@ -536,28 +565,7 @@ actor_rollout_ref:
       # Some models are known to produce different tokenization results when tokenizing turn by turn vs. all at once. aThis behavior has already been validated for them.
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
-      # - off: disable tokenization sanity check
-      # - strict: enable strict tokenization sanity check (default)
-      # - ignore_strippable: ignore strippable tokens when checking tokenization sanity
-      tokenization_sanity_check_mode: strict
-
-      # Format of the multi-turn interaction. Options: hermes, llama3_json, ...
-      format: hermes
-
-    # support logging rollout prob for debugging purpose
-    calculate_log_probs: False
-
-    # profiler configs
-    profiler:
-
-      # True for each task has its own database, False for all tasks in one training step share one database.
-      discrete: False
-
-      # Whether to profile all ranks.
-      all_ranks: False
-
-      # The ranks that will be profiled. null or [0,1,...]
-      ranks: null
+      enable_tokenization_sanity_check: True
 
 # configs for the critic
 critic:
@@ -566,7 +574,7 @@ critic:
   rollout_n: ${actor_rollout_ref.rollout.n}
 
   # fsdp or fsdp2 strategy used for critic model training
-  strategy: ${actor_rollout_ref.actor.strategy}
+  strategy: fsdp
 
   # optimizer configs
   optim:
@@ -588,12 +596,27 @@ critic:
 
     # Weight decay
     weight_decay: 0.01
-
+  megatron:
+    param_offload: False
+    grad_offload: False
+    optimizer_offload: False
+    tensor_model_parallel_size: 1
+    expert_model_parallel_size: 1
+    expert_tensor_parallel_size: null
+    pipeline_model_parallel_size: 1
+    virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+    context_parallel_size: 1
+    sequence_parallel: True
+    use_distributed_optimizer: True
+    use_dist_checkpointing: False
+    dist_checkpointing_path: null
+    seed: 42
+    override_transformer_config: {} # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
   # model config for the critic
   model:
 
     # Path to pretrained model weights
-    path: ~/models/deepseek-llm-7b-chat
+    path: /root/Qwen/Qwen2.5-0.5B-Instruct
 
     # Whether to use shared memory for loading the model
     use_shm: False
@@ -663,7 +686,7 @@ critic:
   ppo_micro_batch_size: null
 
   # Local per-GPU micro batch size
-  ppo_micro_batch_size_per_gpu: null
+  ppo_micro_batch_size_per_gpu: 4
 
   # Forward-only batch size (global)
   forward_micro_batch_size: ${critic.ppo_micro_batch_size}
@@ -736,12 +759,12 @@ reward_model:
   # model config for reward scoring
   model:
 
-    # Input tokenizer. If the reward model’s chat template is inconsistent with the policy,
-    # we need to first decode to plaintext, then apply the rm’s chat_template.
+    # Input tokenizer. If the reward model's chat template is inconsistent with the policy,
+    # we need to first decode to plaintext, then apply the rm's chat_template.
     # Then score with RM. If chat_templates are consistent, it can be set to null.
     input_tokenizer: ${actor_rollout_ref.model.path}
 
-    # RM’s HDFS path or local path. Note that RM only supports AutoModelForSequenceClassification.
+    # RM's HDFS path or local path. Note that RM only supports AutoModelForSequenceClassification.
     # Other model types need to define their own RewardModelWorker and pass it from the code.
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
 
@@ -897,7 +920,7 @@ trainer:
   balance_batch: True
 
   # Number of epochs in training
-  total_epochs: 30
+  total_epochs: 15
 
   # Total training steps (can be set explicitly or derived from epochs)
   total_training_steps: null
@@ -952,7 +975,7 @@ trainer:
   experiment_name: gsm8k
 
   # Logging backends to use: "console", "wandb", etc.
-  logger: [ 'console', 'wandb' ]
+  logger: ['console', 'wandb']
 
   # Number of generations to log during validation
   log_val_generations: 0
@@ -970,7 +993,7 @@ trainer:
   n_gpus_per_node: 8
 
   # Save frequency (by iteration) for model checkpoints
-  save_freq: -1
+  save_freq: 10
 
   # Resume mode: "auto", "disable", or "resume_path"
   # "auto": resume from last checkpoint if available
@@ -984,11 +1007,8 @@ trainer:
   # Whether to run validation before training begins
   val_before_train: True
 
-  # Whether to run validation only
-  val_only: False
-
   # Validation frequency (in training iterations)
-  test_freq: -1
+  test_freq: 10
 
   # Number of iterations to warm up the critic before updating policy
   critic_warmup: 0
