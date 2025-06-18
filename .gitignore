@@ -114,6 +114,7 @@ ENV/
 
 # ckpt
 *.lock
+!uv.lock
 
 # data
 *.parquet

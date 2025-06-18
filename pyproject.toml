@@ -13,10 +13,7 @@ requires = [
 # -------------------------------
 [project]
 name = "verl"
-# We'll mark the version as "dynamic" because it's read from the file "verl/version/version" 
-# (PEP 621 calls this "dynamic version"). 
-# The actual version is specified in the [tool.setuptools.dynamic] section below.
-dynamic = ["version", "authors", "urls"]
+version = "0.1.0"
 
 dependencies = [
   "accelerate>=1.7.0",
@@ -40,7 +37,7 @@ dependencies = [
   "transformers>=4.51.1",
   "wandb>=0.20.1",
   "msgspec>=0.19.0",
-  "megatron-core[megatron]",
+  "megatron-core==0.12.0",
   "pip>=25.1.1",
 ]
 description = "verl: Volcano Engine Reinforcement Learning for LLM"
@@ -101,10 +98,6 @@ select = [
 # True means `setuptools` will attempt to include all relevant files in package_data automatically.
 # This corresponds to `include_package_data=True` in setup.py.
 include-package-data = true
-
-# We read the version from a file in 'verl/version/version'
-[tool.setuptools.dynamic]
-version = {file = "verl/version/version"}
 
 # If you need to mimic `package_dir={'': '.'}`:
 [tool.setuptools.package-dir]
