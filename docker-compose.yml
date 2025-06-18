@@ -1,0 +1,11 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ROLLOUT_ENGINE: vllm
+        REPO: 248189905876.dkr.ecr.ap-south-1.amazonaws.com/yuxuanlu
+        BASE_TAG: base
+    image: 248189905876.dkr.ecr.ap-south-1.amazonaws.com/yuxuanlu:verl
+    platform: linux/amd64  # Adjust this based on your target platform 

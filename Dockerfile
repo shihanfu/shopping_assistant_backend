@@ -1,5 +1,8 @@
-FROM 248189905876.dkr.ecr.ap-south-1.amazonaws.com/yuxuanlu:base
+ARG REPO=248189905876.dkr.ecr.ap-south-1.amazonaws.com/yuxuanlu
+ARG BASE_TAG=base
+FROM ${REPO}:${BASE_TAG}
 
+ARG ROLLOUT_ENGINE
 
 RUN condax install uv
 
@@ -11,7 +14,7 @@ COPY uv.lock /workdir/uv.lock
 RUN python3.10 -m pip install --upgrade pip setuptools
 RUN cd /workdir && uv sync
 ENV CUDNN_PATH=/workdir/.venv/lib/python3.10/site-packages/nvidia/cudnn
-RUN cd /workdir && uv sync --extra compile # two stages as first stage install build dependencies.
+RUN cd /workdir && uv sync --extra compile --extra $ROLLOUT_ENGINE # two stages as first stage install build dependencies.
 
 
 COPY . /workdir
