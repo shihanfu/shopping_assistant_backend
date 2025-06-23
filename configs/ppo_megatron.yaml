@@ -6,21 +6,20 @@
 
 # dataset config
 data:
-
   # Tokenizer class or path. If null, it will be inferred from the model.
   tokenizer: null
 
   # Whether to use shared memory for data loading.
-  use_shm: False
+  use_shm: true
 
   # Training set parquet. Can be a list or a single file.
   # The program will read all files into memory, so it can't be too large (< 100GB).
   # The path can be either a local path or an HDFS path.
   # For HDFS path, we provide utils to download it to DRAM and convert it to a local path.
-  train_files: ~/data/rlhf/gsm8k/train.parquet
+  train_files: /root/data/gsm8k/train.parquet
 
   # Validation parquet. Can be a list or a single file.
-  val_files: ~/data/rlhf/gsm8k/test.parquet
+  val_files: /root/data/gsm8k/test.parquet
 
   # The field in the dataset where the prompt is located. Default is 'prompt'.
   prompt_key: prompt
@@ -33,10 +32,10 @@ data:
   max_prompt_length: 512
 
   # Maximum response length. Rollout in RL algorithms (e.g. PPO) generates up to this length.
-  max_response_length: 512
+  max_response_length: 256
 
   # Batch size sampled for one training iteration of different RL algorithms.
-  train_batch_size: 1024
+  train_batch_size: 256
 
   # Batch size used during validation. Can be null.
   val_batch_size: null
@@ -47,7 +46,7 @@ data:
   return_raw_input_ids: False
 
   # Whether to return the original chat (prompt) without applying chat template.
-  return_raw_chat: False
+  return_raw_chat: True
 
   # Whether to return the full prompt with chat template.
   return_full_prompt: False
@@ -81,7 +80,6 @@ data:
 
   # Optional: specify a custom dataset class path and name if overriding default loading behavior.
   custom_cls:
-
     # The path to the file containing your customized dataset class. If not specified, pre-implemented dataset will be used.
     path: null
 
@@ -90,18 +88,16 @@ data:
 
 # config for actor, rollout and reference model
 actor_rollout_ref:
-
   # Whether it's a hybrid engine, currently only supports hybrid engine
   hybrid_engine: true
 
   # common configs for the model
   model:
-
     # Huggingface model path. This can be either local path or HDFS path.
     path: /root/Qwen/Qwen2.5-0.5B-Instruct
 
     # Whether to use shared memory (SHM) for accelerating the loading of model weights
-    use_shm: false
+    use_shm: true
 
     # Additional Python packages to register huggingface models/tokenizers.
     external_lib: null
@@ -136,7 +132,6 @@ actor_rollout_ref:
 
     # Options for fused kernels. If use_fused_kernels is true, this will be used.
     fused_kernel_options:
-
       # Implementation backend for fused kernels. Options: "triton" or "torch".
       impl_backend: torch
 
@@ -151,26 +146,25 @@ actor_rollout_ref:
       # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
       activations_checkpoint_num_layers: 2 # not used with 'selective'
   actor:
-
     # fsdp, fsdp2 or megatron. fsdp backend used here.
     strategy: megatron
     load_weight: true
-    profile: # profile the actor model in `update_policy` 
+    profile: # profile the actor model in `update_policy`
       use_profile: False # open it when you want to profile the actor model
       profile_ranks: null # list, you can specify the ranks to profile
-      step_start: -1 # start step in update_policy 
-      step_end: -1 # end step 
+      step_start: -1 # start step in update_policy
+      step_end: -1 # end step
       save_path: null # the path to save the profile result
-    
+
     # Split each sample into sub-batches of this size for PPO
     ppo_mini_batch_size: 64
-    
+
     # [Deprecated] Global micro batch size
     ppo_micro_batch_size: null
 
     # Local per-GPU micro batch size
     ppo_micro_batch_size_per_gpu: 4
-    
+
     # Whether to automatically adjust batch size at runtime
     use_dynamic_bsz: false
 
@@ -190,28 +184,7 @@ actor_rollout_ref:
     # Upper bound for asymmetric clipping (used in dual-clip PPO)
     clip_ratio_high: 0.2
 
-    # policy loss config
-    policy_loss:
-    
-      # Loss function mode: vanilla / clip-cov / kl-cov from https://arxiv.org/abs/2505.22617
-      loss_mode: "vanilla"
-      
-      # Ratio of tokens to be clipped for clip-cov loss
-      clip_cov_ratio: 0.0002
-
-      # Lower bound for clip-cov loss
-      clip_cov_lb: 1.0
-
-      # Upper bound for clip-cov loss
-      clip_cov_ub: 5.0
-
-      # Ratio of tokens to be applied kl penalty for kl-cov loss
-      kl_cov_ratio: 0.0002
-
-      # KL divergence penalty coefficient
-      ppo_kl_coef: 0.1
-
-    # Constant C in Dual-clip PPO; clips when advantage < 0 and ratio > C
+    # Constant C in Dual-clip PPO; clips when advantage < -C
     clip_ratio_c: 3.0
 
     # Loss aggregation mode: "token-mean", "seq-mean-token-sum", or "seq-mean-token-mean"
@@ -226,7 +199,7 @@ actor_rollout_ref:
     # Whether to use torch.compile()
     use_torch_compile: true
     data_loader_seed: null
-    
+
     # KL loss coefficient when use_kl_loss is enabled. For GRPO
     kl_loss_coef: 0.001
 
@@ -250,23 +223,18 @@ actor_rollout_ref:
 
     # checkpoint configs
     checkpoint:
-
       # What to include in saved checkpoints
       # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
-      save_contents: ['model', 'optimizer', 'extra']
-
-      # For more flexibility, you can specify the contents to load from the checkpoint.
-      load_contents: ${actor_rollout_ref.actor.checkpoint.save_contents}
+      contents: ["model", "optimizer", "extra"]
 
     # optimizer configs
     optim:
-
       # Learning rate
       lr: 1e-6
 
       # Warmup steps; negative value delegates to lr_warmup_steps_ratio
       lr_warmup_steps: -1
-      lr_warmup_init: 0.0  # initial learning rate for warmup, default to 0.0
+      lr_warmup_init: 0.0 # initial learning rate for warmup, default to 0.0
       min_lr: 0.0
       weight_decay_incr_style: constant # select from constant/linear/cosine
       lr_wsd_decay_style: exponential # select from constant/exponential/cosine
@@ -274,7 +242,7 @@ actor_rollout_ref:
       use_checkpoint_opt_param_scheduler: False # use checkpoint optimizer parameter scheduler
       lr_decay_steps: null
       lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
-      
+
       # Warmup steps ratio (used if lr_warmup_steps is negative)
       lr_warmup_steps_ratio: 0.0
 
@@ -295,10 +263,8 @@ actor_rollout_ref:
 
     # configs for FSDP
     fsdp_config:
-
       # policy for wrapping the model
       wrap_policy:
-
         # Minimum number of parameters to trigger wrapping a layer with FSDP
         min_num_params: 0
 
@@ -340,20 +306,18 @@ actor_rollout_ref:
   # Reference model config.
   # Reference model will be enabled when actor.use_kl_loss or/and algorithm.use_kl_in_reward is/are True.
   ref:
-
     # actor_rollout_ref.ref: FSDP config same as actor. For models larger than 7B, it's recommended to turn on offload for ref by default
     strategy: megatron
     load_weight: true
-    profile: # profile the actor model in `update_policy` 
+    profile: # profile the actor model in `update_policy`
       use_profile: False # open it when you want to profile the actor model
       profile_ranks: null # list, you can specify the ranks to profile
-      step_start: -1 # start step in update_policy 
-      step_end: -1 # end step 
+      step_start: -1 # start step in update_policy
+      step_end: -1 # end step
       save_path: null # the path to save the profile result
 
     # config for FSDP strategy
     fsdp_config:
-
       # whether to offload parameters in FSDP
       param_offload: False
 
@@ -367,9 +331,24 @@ actor_rollout_ref:
 
       # the wrap policy for FSDP model
       wrap_policy:
-
         # minimum number of params in a wrapped module
         min_num_params: 0
+    megatron:
+      param_offload: False
+      grad_offload: False
+      optimizer_offload: False
+      tensor_model_parallel_size: 2
+      expert_model_parallel_size: 1
+      expert_tensor_parallel_size: null
+      pipeline_model_parallel_size: 2
+      virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+      context_parallel_size: 2
+      sequence_parallel: True
+      use_distributed_optimizer: True
+      use_dist_checkpointing: False
+      dist_checkpointing_path: null
+      seed: 42
+      override_transformer_config: {} # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
 
     # whether to enable torch.compile
     use_torch_compile: ${actor_rollout_ref.actor.use_torch_compile}
@@ -379,7 +358,7 @@ actor_rollout_ref:
     log_prob_micro_batch_size: null
 
     # The batch size for one forward pass in the computation of log_prob. Local batch size per GPU.
-    log_prob_micro_batch_size_per_gpu: null
+    log_prob_micro_batch_size_per_gpu: 4
 
     # enable dynamic batch size (sequence packing) for log_prob computation
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
@@ -396,21 +375,8 @@ actor_rollout_ref:
     # recompute entropy
     entropy_checkpointing: False
 
-    # profiler configs
-    profiler:
-
-      # True for each task has its own database, False for all tasks in one training step share one database.
-      discrete: False
-
-      # Whether to profile all ranks.
-      all_ranks: False
-
-      # The ranks that will be profiled. null or [0,1,...]
-      ranks: null
-
   # Rollout model config.
   rollout:
-
     # actor_rollout_ref.rollout.name: hf/vllm/sglang.
     name: vllm
 
@@ -440,16 +406,16 @@ actor_rollout_ref:
     dtype: bfloat16
 
     # Fraction of GPU memory used by vLLM/SGLang for KV cache.
-    gpu_memory_utilization: 0.5
+    gpu_memory_utilization: 0.4
 
     # Whether to ignore EOS and continue generating after EOS is hit.
     ignore_eos: False
 
     # Whether to disable CUDA graph. Default True to allow cache freeing.
-    enforce_eager: True
+    enforce_eager: False
 
     # Whether to free engine KVCache after generation. Set enforce_eager=True when enabled.
-    free_cache_engine: True
+    free_cache_engine: False
 
     # Which loader to use for rollout model weights: dummy_dtensor, hf, megatron, etc.
     # safetensors (for huge model, and set use_shm=True); dummy_dtensor: randomly init model weight
@@ -474,7 +440,7 @@ actor_rollout_ref:
     log_prob_micro_batch_size: null
 
     # The batch size for one forward pass in the computation of log_prob. Local batch size per GPU.
-    log_prob_micro_batch_size_per_gpu: null
+    log_prob_micro_batch_size_per_gpu: 8
 
     # enable dynamic batch size (sequence packing) for log_prob computation
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
@@ -495,30 +461,20 @@ actor_rollout_ref:
     # number of responses (i.e. num sample times). > 1 for grpo
     n: 1
 
-    # Whether to wake up inference engine in multi-stage. (Wake up model weights first, then resume kv cache)
-    multi_stage_wake_up: false
-
     # Extra inference engine arguments (vllm, sglang).
     engine_kwargs:
-
       # for vllm
       vllm:
-
         # Swap space (in GB) used by inference engine. null uses default (e.g., 4 GB).
         swap_space: null
 
-        # Whether to disable the preprocessor cache for multimodel models.
-        disable_mm_preprocessor_cache: False
-
       # for sglang
       sglang:
-
         # The attention backend for sglang engine. Options: flashinfer, triton, flashmla, null for default.
         attention_backend: null
 
     # Sampling parameters used during validation.
     val_kwargs:
-
       # sampling parameters for validation
       # Top-k sampling parameter. -1 for vLLM rollout, 0 for HF rollout.
       top_k: -1
@@ -537,21 +493,14 @@ actor_rollout_ref:
 
     # Multi-turn interaction config for tools or chat.
     multi_turn:
-
       # set to True for multi-turn tool interaction tasks; should set rollout.name to sglang as well
       enable: False
 
       # null for no limit (default max_length // 3)
-      max_assistant_turns: null
+      max_turns: null
 
       # null for no tool
       tool_config_path: null
-
-      # null for no limit (default max_length // 3)
-      max_user_turns: null
-
-      # null for no interaction
-      interaction_config_path: null
 
       # null for default callback
       completion_callback: null
@@ -567,11 +516,10 @@ actor_rollout_ref:
       # To reduce excessive warnings, you can turn off the sanity check for these models if you are using their default chat template:
       # Qwen/QwQ-32B, Qwen/Qwen3-xxB
       enable_tokenization_sanity_check: True
-      format:  hermes
+      format: hermes
 
 # configs for the critic
 critic:
-
   # Number of rollouts per update (mirrors actor rollout_n)
   rollout_n: ${actor_rollout_ref.rollout.n}
 
@@ -581,12 +529,20 @@ critic:
 
   # optimizer configs
   optim:
-
     # Learning rate
     lr: 1e-5
 
     # Warmup steps ratio; total steps will be injected at runtime
     lr_warmup_steps_ratio: 0.
+    lr_decay_steps: null
+    lr_warmup_steps: -1
+    lr_warmup_init: 0.0 # initial learning rate for warmup, default to 0.0
+    min_lr: 0.0
+    weight_decay_incr_style: constant # select from constant/linear/cosine
+    lr_wsd_decay_style: exponential # select from constant/exponential/cosine
+    lr_wsd_decay_steps: null
+    use_checkpoint_opt_param_scheduler: False # use checkpoint optimizer parameter scheduler
+    lr_decay_style: linear # select from constant/linear/cosine/inverse_square_root
 
     # Minimum LR ratio for cosine schedule
     min_lr_ratio: null
@@ -599,12 +555,26 @@ critic:
 
     # Weight decay
     weight_decay: 0.01
-
+  megatron:
+    param_offload: False
+    grad_offload: False
+    optimizer_offload: False
+    tensor_model_parallel_size: 2
+    expert_model_parallel_size: 1
+    expert_tensor_parallel_size: null
+    pipeline_model_parallel_size: 2
+    virtual_pipeline_model_parallel_size: null # change VPP interface for parallelism tests
+    context_parallel_size: 2
+    sequence_parallel: True
+    use_distributed_optimizer: True
+    use_dist_checkpointing: False
+    dist_checkpointing_path: null
+    seed: 42
+    override_transformer_config: {} # additional transformer config like: num_layers_in_first(/last)_pipeline_stage
   # model config for the critic
   model:
-
     # Path to pretrained model weights
-    path: ~/models/deepseek-llm-7b-chat
+    path: /root/Qwen/Qwen2.5-0.5B-Instruct
 
     # Whether to use shared memory for loading the model
     use_shm: False
@@ -613,7 +583,7 @@ critic:
     tokenizer_path: ${actor_rollout_ref.model.path}
 
     # Hugging Face config override
-    override_config: { }
+    override_config: {}
 
     # External model implementation (optional)
     external_lib: ${actor_rollout_ref.model.external_lib}
@@ -632,7 +602,6 @@ critic:
 
     # FSDP-specific config
     fsdp_config:
-
       # Whether to offload model parameters to CPU
       param_offload: False
 
@@ -647,7 +616,6 @@ critic:
 
       # Policy for wrapping layers with FSDP
       wrap_policy:
-
         # Minimum number of parameters to trigger wrapping
         min_num_params: 0
 
@@ -666,15 +634,24 @@ critic:
 
     # LoRA target modules: "all-linear" or list of linear projection layers
     target_modules: all-linear
+    gradient_checkpointing_kwargs:
+      ## Activation Checkpointing
+      activations_checkpoint_method: uniform # 'uniform', 'block'; not used with 'selective'
+      # 'uniform' divides the total number of transformer layers and checkpoints the input activation of each chunk
+      # 'block' checkpoints the specified number of layers per pipeline stage at the specified granularity
+      activations_checkpoint_granularity: full # 'selective' or 'full'
+      # 'full' will checkpoint the entire transformer layer and 'selective' only checkpoints memory intensive part of attention
+      activations_checkpoint_num_layers: 2 # not used with 'selective'
 
   # PPO mini-batch size per update
   ppo_mini_batch_size: ${actor_rollout_ref.actor.ppo_mini_batch_size}
+  data_loader_seed: ${actor_rollout_ref.actor.data_loader_seed}
 
   # [Deprecated] Global micro batch size
   ppo_micro_batch_size: null
 
   # Local per-GPU micro batch size
-  ppo_micro_batch_size_per_gpu: null
+  ppo_micro_batch_size_per_gpu: 4
 
   # Forward-only batch size (global)
   forward_micro_batch_size: ${critic.ppo_micro_batch_size}
@@ -711,30 +688,12 @@ critic:
 
   # checkpoint configs
   checkpoint:
-
     # What to include in saved checkpoints
     # with 'hf_model' you can save whole model as hf format, now only use sharded model checkpoint to save space
-    save_contents: ['model', 'optimizer', 'extra']
-
-    # What to include when loading checkpoints
-    load_contents: ${critic.checkpoint.save_contents}
-
-  # profiler configs
-  # the corresponding dataclass is verl.utils.debug.ProfilerConfig.
-  profiler:
-
-    # True for each task has its own database, False for all tasks in one training step share one database.
-    discrete: False
-
-    # Whether to profile all ranks.
-    all_ranks: False
-
-    # The ranks that will be profiled. null or [0,1,...]
-    ranks: null
+    contents: ["model", "optimizer", "extra"]
 
 # configs for the reward model
 reward_model:
-
   # Whether to enable reward model. If False, we compute the reward only with the user-defined reward functions.
   # In GSM8K and Math examples, we disable reward model.
   # For RLHF alignment example using full_hh_rlhf, we utilize reward model to assess the responses.
@@ -742,17 +701,16 @@ reward_model:
   enable: False
 
   # FSDP strategy: "fsdp" or "fsdp2"
-  strategy: ${actor_rollout_ref.actor.strategy}
+  strategy: fsdp
 
   # model config for reward scoring
   model:
-
-    # Input tokenizer. If the reward model’s chat template is inconsistent with the policy,
-    # we need to first decode to plaintext, then apply the rm’s chat_template.
+    # Input tokenizer. If the reward model's chat template is inconsistent with the policy,
+    # we need to first decode to plaintext, then apply the rm's chat_template.
     # Then score with RM. If chat_templates are consistent, it can be set to null.
     input_tokenizer: ${actor_rollout_ref.model.path}
 
-    # RM’s HDFS path or local path. Note that RM only supports AutoModelForSequenceClassification.
+    # RM's HDFS path or local path. Note that RM only supports AutoModelForSequenceClassification.
     # Other model types need to define their own RewardModelWorker and pass it from the code.
     path: ~/models/FsfairX-LLaMA3-RM-v0.1
 
@@ -773,10 +731,8 @@ reward_model:
 
     # FSDP-specific config
     fsdp_config:
-
       # Policy for wrapping layers with FSDP
       wrap_policy:
-
         # Minimum number of parameters to trigger wrapping
         min_num_params: 0
 
@@ -821,31 +777,14 @@ reward_model:
 
   # Cloud/local sandbox fusion configuration for custom reward logic
   sandbox_fusion:
-
     # Cloud/local function URL for sandbox execution
     url: null
 
     # Max concurrent requests allowed to sandbox
     max_concurrent: 64
 
-    # Max memory limit for each sandbox process in MB
-    memory_limit_mb: 1024
-
-  # profiler configs
-  profiler:
-
-    # True for each task has its own database, False for all tasks in one training step share one database.
-    discrete: False
-
-    # Whether to profile all ranks.
-    all_ranks: False
-
-    # The ranks that will be profiled. null or [0,1,...]
-    ranks: null
-
 # custom reward function definition
 custom_reward_function:
-
   # The path to the file containing your customized reward function.
   # If not specified, pre-implemented reward functions will be used.
   path: null
@@ -855,7 +794,6 @@ custom_reward_function:
 
 # config for the algorithm
 algorithm:
-
   # Discount factor for future rewards
   gamma: 1.0
 
@@ -876,7 +814,6 @@ algorithm:
 
   # KL control configuration
   kl_ctrl:
-
     # KL control type: "fixed" or "adaptive"
     type: fixed
 
@@ -894,7 +831,6 @@ algorithm:
 
   # Preference feedback PPO settings
   pf_ppo:
-
     # Method for reweighting samples: "pow", "max_min", or "max_random"
     reweight_method: pow
 
@@ -903,58 +839,14 @@ algorithm:
 
 # config for the trainer
 trainer:
-
   # Whether to balance batch sizes across distributed workers
   balance_batch: True
 
   # Number of epochs in training
-  total_epochs: 30
+  total_epochs: 15
 
   # Total training steps (can be set explicitly or derived from epochs)
   total_training_steps: null
-
-  # The steps that will be profiled. null means no profiling. null or [1,2,5,...]
-  profile_steps: null
-
-  # controller Nvidia Nsight Systems Options. Must set when profile_steps is not None.
-  ## reference https://docs.nvidia.com/nsight-systems/UserGuide/index.html
-  ## reference https://docs.ray.io/en/latest/ray-observability/user-guides/profiling.html
-  controller_nsight_options:
-
-    # Select the API(s) to be traced.
-    trace: "cuda,nvtx,cublas,ucx"
-
-    # Track the GPU memory usage by CUDA kernels. Must be string type "true" or "false".
-    cuda-memory-usage: "true"
-
-    # CUDA graphs will be traced as a whole
-    cuda-graph-trace: "graph"
-
-  # worker Nvidia Nsight Systems Options. Must set when profile_steps is not None.
-  worker_nsight_options:
-
-    # Select the API(s) to be traced.
-    trace: "cuda,nvtx,cublas,ucx"
-
-    # Track the GPU memory usage by CUDA kernels. Must be string type "true" or "false".
-    cuda-memory-usage: "true"
-
-    # CUDA graphs will be traced as a whole
-    cuda-graph-trace: "graph"
-
-    # Profiling only in a range of torch.cuda.profiler.start and stop. Do not change this config.
-    capture-range: "cudaProfilerApi"
-
-    # Specify the desired behavior when a capture range ends.
-    # In verl we need the orch.cuda.profiler.start/stop pair to repeats n times.
-    # valid values are "repeat-shutdown:n" or null.
-    # For normal whole step profiling, n = len(profile_steps);
-    # but for discrete profiling, n = len(profile_steps) * Number(subtasks).
-    # Or you can just leave it null and the program will use n = len(profile_steps) * 6;
-    capture-range-end: null
-
-    # Send signal to the target application's process group. We let the program to exit by itself.
-    kill: none
 
   # Project name for experiment tracking (e.g., wandb)
   project_name: verl_examples
@@ -963,7 +855,7 @@ trainer:
   experiment_name: gsm8k
 
   # Logging backends to use: "console", "wandb", etc.
-  logger: [ 'console', 'wandb' ]
+  logger: ["console", "wandb"]
 
   # Number of generations to log during validation
   log_val_generations: 0
@@ -981,7 +873,7 @@ trainer:
   n_gpus_per_node: 8
 
   # Save frequency (by iteration) for model checkpoints
-  save_freq: -1
+  save_freq: 10
 
   # Resume mode: "auto", "disable", or "resume_path"
   # "auto": resume from last checkpoint if available
@@ -996,7 +888,7 @@ trainer:
   val_before_train: False
 
   # Validation frequency (in training iterations)
-  test_freq: -1
+  test_freq: 10
 
   # Number of iterations to warm up the critic before updating policy
   critic_warmup: 0
@@ -1024,7 +916,6 @@ trainer:
 
 # configs related to ray initialization
 ray_init:
-
   # Number of CPUs for Ray. Use a fixed number instead of null when using SLURM.
   num_cpus: null
 
