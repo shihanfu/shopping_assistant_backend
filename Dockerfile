@@ -1,4 +1,4 @@
-ARG REPO=248189905876.dkr.ecr.ap-south-1.amazonaws.com/yuxuanlu
+ARG REPO=248189905876.dkr.ecr.us-east-1.amazonaws.com/greenland
 ARG BASE_TAG=base
 FROM ${REPO}:${BASE_TAG}
 
