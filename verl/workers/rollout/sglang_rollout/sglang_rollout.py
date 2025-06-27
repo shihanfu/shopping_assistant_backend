@@ -733,6 +733,7 @@ class SGLangRollout(BaseRollout):
         **kwargs,
     ) -> AsyncRolloutRequest:
         assert self._tp_rank == 0, "only the master process can call this function"
+        logger.info(f"start to rollout a request: {req.request_id}")
         _req = deepcopy(req)
         finish_reason_type = None
         output = None

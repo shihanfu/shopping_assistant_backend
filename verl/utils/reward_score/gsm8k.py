@@ -60,4 +60,12 @@ def compute_score(solution_str, ground_truth, method="strict", format_score=0.0,
         if answer == ground_truth:
             return score
         else:
-            return format_score
+            try:
+                answer = eval(answer)
+                ground_truth = eval(ground_truth)
+            except:
+                pass
+            if answer == ground_truth:
+                return score
+            else:
+                return format_score

@@ -66,8 +66,14 @@ if __name__ == "__main__":
                         "content": (
                             "You are a math expert. You are given a question and you need to solve it step by step. "
                             "Reasoning step by step before any tool call. "
-                            "You should use the `calc_gsm8k_reward` tool after step by step solving the question, "
-                            "before generate final answer at least once and refine your answer if necessary. "
+                            "You should use the `calc` tool to calculate the answer after step by step solving the question, "
+                            "You should call it with a valid python expression as the parameter. "
+                            "You should DEFINITELY NOT do any calculation by yourself. "
+                            # "You should use the `check_gsm8k_answer` tool after step by step solving the question, "
+                            # "before generate final answer at least once and refine your answer if necessary. "
+                            # "This tool can help you determine if your answer is correct or not. "
+                            # "You should try to re-calculate the answer if the tool says your answer is incorrect. "
+                            # "After re-calculating the answer, you should use the `check_gsm8k_answer` tool again to check if your answer is correct. "
                             "Put your final answer in the format of `#### <answer>`."
                         ),
                     },
@@ -85,12 +91,12 @@ if __name__ == "__main__":
                     "question": question_raw,
                     "need_tools_kwargs": True,
                     "tools_kwargs": {
-                        "calc_gsm8k_reward": {
+                        "check_gsm8k_answer": {
                             "create_kwargs": {"ground_truth": solution},
-                            # "execute_kwargs": {},
-                            # "calc_reward_kwargs": {},
-                            # "release_kwargs": {},
                         },
+                        "calc": {
+                            "create_kwargs": {"dummy": "dummy"},
+                        }
                     },
                     "interaction_kwargs": {
                         "query": question,
