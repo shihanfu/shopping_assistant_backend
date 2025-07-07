@@ -175,6 +175,15 @@ wheels = [
 ]
 
 [[package]]
+name = "aiolimiter"
+version = "1.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f1/23/b52debf471f7a1e42e362d959a3982bdcb4fe13a5d46e63d28868807a79c/aiolimiter-1.2.1.tar.gz", hash = "sha256:e02a37ea1a855d9e832252a105420ad4d15011505512a1a1d814647451b5cca9", size = 7185 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f3/ba/df6e8e1045aebc4778d19b8a3a9bc1808adb1619ba94ca354d9ba17d86c3/aiolimiter-1.2.1-py3-none-any.whl", hash = "sha256:d3f249e9059a20badcb56b61601a83556133655c11d1eb3dd3e04ff069e5f3c7", size = 6711 },
+]
+
+[[package]]
 name = "aiosignal"
 version = "1.3.2"
 source = { registry = "https://pypi.org/simple" }
@@ -300,6 +309,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5a/b0/1367933a8532ee6ff8d63537de4f1177af4bff9f3e829baf7331f595bb24/attrs-25.3.0.tar.gz", hash = "sha256:75d7cefc7fb576747b2c81b4442d4d4a1ce0900973527c011d1030fd3bf4af1b", size = 812032 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/77/06/bb80f5f86020c4551da315d78b3ab75e8228f89f0162f2c3a819e407941a/attrs-25.3.0-py3-none-any.whl", hash = "sha256:427318ce031701fea540783410126f03899a97ffc6f61596ad581ac2e40e3bc3", size = 63815 },
+]
+
+[[package]]
+name = "beartype"
+version = "0.12.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/95/78/bf7a20712dbf3a18e37f9ae1c2a1e04169c43b4628871f40f1db5f29c257/beartype-0.12.0.tar.gz", hash = "sha256:3b7545b3f333a6b07042b68b102141554c9add2e979dab7b0f8ed6378f7af7d7", size = 1029204 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b4/1f/d066e5689e91e3c8845d275d85d25b23f2c7c78c9523d852b4b73be73875/beartype-0.12.0-py3-none-any.whl", hash = "sha256:3d9d5bec198bcf965c000d7b5120bebdd19a444ef6e39e97d0e93eb8832e10c8", size = 754537 },
 ]
 
 [[package]]
@@ -992,6 +1010,15 @@ wheels = [
 ]
 
 [[package]]
+name = "farama-notifications"
+version = "0.0.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2e/2c/8384832b7a6b1fd6ba95bbdcae26e7137bb3eedc955c42fd5cdcc086cfbf/Farama-Notifications-0.0.4.tar.gz", hash = "sha256:13fceff2d14314cf80703c8266462ebf3733c7d165336eee998fc58e545efd18", size = 2131 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/05/2c/ffc08c54c05cdce6fbed2aeebc46348dbe180c6d2c541c7af7ba0aa5f5f8/Farama_Notifications-0.0.4-py3-none-any.whl", hash = "sha256:14de931035a41961f7c056361dc7f980762a143d05791ef5794a751a2caf05ae", size = 2511 },
+]
+
+[[package]]
 name = "fastapi"
 version = "0.115.12"
 source = { registry = "https://pypi.org/simple" }
@@ -1331,6 +1358,28 @@ wheels = [
 ]
 
 [[package]]
+name = "greenlet"
+version = "2.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fd/6a/f07b0028baff9bca61ecfcd9ee021e7e33369da8094f00eff409f2ff32be/greenlet-2.0.1.tar.gz", hash = "sha256:42e602564460da0e8ee67cb6d7236363ee5e131aa15943b6670e44e5c2ed0f67", size = 163824 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/c4/01247dcd15d3f9919760bc8c0846f97020e5bacc35b7899cf5cb02313a16/greenlet-2.0.1-cp310-cp310-macosx_10_15_x86_64.whl", hash = "sha256:0722c9be0797f544a3ed212569ca3fe3d9d1a1b13942d10dd6f0e8601e484d26", size = 203707 },
+    { url = "https://files.pythonhosted.org/packages/b5/c5/827149685292c53e5da546351e4f40f5a8513f200d920ae80423963dadef/greenlet-2.0.1-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:4d37990425b4687ade27810e3b1a1c37825d242ebc275066cfee8cb6b8829ccd", size = 529625 },
+    { url = "https://files.pythonhosted.org/packages/63/62/26fe837a910eadb48973458641f2d084967dbfdf000a7fefbb89bef8a753/greenlet-2.0.1-cp310-cp310-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:be35822f35f99dcc48152c9839d0171a06186f2d71ef76dc57fa556cc9bf6b45", size = 543005 },
+    { url = "https://files.pythonhosted.org/packages/dd/5e/7309beef044bb4ceb0f052dc3797678a5f4eb6d07789787b2e4a15803b7a/greenlet-2.0.1-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c140e7eb5ce47249668056edf3b7e9900c6a2e22fb0eaf0513f18a1b2c14e1da", size = 539886 },
+    { url = "https://files.pythonhosted.org/packages/e1/1f/b5b8099362fd1c4a45a1763981a2c8885344d19952970bebefa2b73edc0d/greenlet-2.0.1-cp310-cp310-musllinux_1_1_aarch64.whl", hash = "sha256:d21681f09e297a5adaa73060737e3aa1279a13ecdcfcc6ef66c292cb25125b2d", size = 1045611 },
+    { url = "https://files.pythonhosted.org/packages/8d/34/bcd0848d4f748831058aabf76749f5979bc3c656770be511a11cbd58da4f/greenlet-2.0.1-cp310-cp310-musllinux_1_1_x86_64.whl", hash = "sha256:fb412b7db83fe56847df9c47b6fe3f13911b06339c2aa02dcc09dce8bbf582cd", size = 1069904 },
+    { url = "https://files.pythonhosted.org/packages/b7/52/51b365ec7123a10a76f5d0cc7fc812f14e22b7823d49b816e1f55785d648/greenlet-2.0.1-cp310-cp310-win_amd64.whl", hash = "sha256:c6a08799e9e88052221adca55741bf106ec7ea0710bca635c208b751f0d5b617", size = 190876 },
+    { url = "https://files.pythonhosted.org/packages/00/0b/5a6cbd757eeb53c4adb3a5037b3e0474a548838d699034982984c9409440/greenlet-2.0.1-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:9e112e03d37987d7b90c1e98ba5e1b59e1645226d78d73282f45b326f7bddcb9", size = 259431 },
+    { url = "https://files.pythonhosted.org/packages/a4/12/fb767fec85b9cefe7110428191cd6a74d22a1dcf563f955444f11855a1b7/greenlet-2.0.1-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:56961cfca7da2fdd178f95ca407fa330c64f33289e1804b592a77d5593d9bd94", size = 533303 },
+    { url = "https://files.pythonhosted.org/packages/cb/ea/ae12dab020482e09ee71e0428b5bde522ffdade92ad04065ed7376a024b4/greenlet-2.0.1-cp311-cp311-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:13ba6e8e326e2116c954074c994da14954982ba2795aebb881c07ac5d093a58a", size = 548217 },
+    { url = "https://files.pythonhosted.org/packages/93/45/d8990ab748feec26be644761862e22a138b4f4a287a665ecad0219c9ba71/greenlet-2.0.1-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1bf633a50cc93ed17e494015897361010fc08700d92676c87931d3ea464123ce", size = 545071 },
+    { url = "https://files.pythonhosted.org/packages/44/8b/f1938147df360b4fcfe3efd4dd06d12d7509bddac391b1ceb419c8ebca53/greenlet-2.0.1-cp311-cp311-musllinux_1_1_aarch64.whl", hash = "sha256:9f2c221eecb7ead00b8e3ddb913c67f75cba078fd1d326053225a3f59d850d72", size = 1050020 },
+    { url = "https://files.pythonhosted.org/packages/3b/13/e9ca546921df9887f46c25c72fd4a1e0f7293821a803bb25f986c9f96f53/greenlet-2.0.1-cp311-cp311-musllinux_1_1_x86_64.whl", hash = "sha256:13ebf93c343dd8bd010cd98e617cb4c1c1f352a0cf2524c82d3814154116aa82", size = 1074714 },
+    { url = "https://files.pythonhosted.org/packages/bd/c0/5b88c82604aa11272b27da3fbc9328438ff68bb25e4c1591e065308826d2/greenlet-2.0.1-cp311-cp311-win_amd64.whl", hash = "sha256:6f61d71bbc9b4a3de768371b210d906726535d6ca43506737682caa754b956cd", size = 191181 },
+]
+
+[[package]]
 name = "grpcio"
 version = "1.73.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1376,6 +1425,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e2/d8/738c77c1e821e350da4a048849f695ff88a02b291f8c69db23908867aea6/grpcio-1.73.0-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:07ad7c57233c2109e4ac999cb9c2710c3b8e3f491a73b058b0ce431f31ed8145", size = 6287593 },
     { url = "https://files.pythonhosted.org/packages/09/ec/8498eabc018fa39ae8efe5e47e3f4c1bc9ed6281056713871895dc998807/grpcio-1.73.0-cp313-cp313-win32.whl", hash = "sha256:0eb5df4f41ea10bda99a802b2a292d85be28958ede2a50f2beb8c7fc9a738419", size = 3668637 },
     { url = "https://files.pythonhosted.org/packages/d7/35/347db7d2e7674b621afd21b12022e7f48c7b0861b5577134b4e939536141/grpcio-1.73.0-cp313-cp313-win_amd64.whl", hash = "sha256:38cf518cc54cd0c47c9539cefa8888549fcc067db0b0c66a46535ca8032020c4", size = 4335872 },
+]
+
+[[package]]
+name = "gymnasium"
+version = "1.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cloudpickle" },
+    { name = "farama-notifications" },
+    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-12-rl-web-agent-vllm'" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.11' and extra == 'extra-12-rl-web-agent-sglang') or (python_full_version < '3.11' and extra != 'extra-12-rl-web-agent-vllm') or (extra == 'extra-12-rl-web-agent-sglang' and extra == 'extra-12-rl-web-agent-vllm')" },
+    { name = "numpy", version = "2.3.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.11' and extra == 'extra-12-rl-web-agent-sglang') or (python_full_version >= '3.11' and extra != 'extra-12-rl-web-agent-vllm') or (extra == 'extra-12-rl-web-agent-sglang' and extra == 'extra-12-rl-web-agent-vllm')" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fd/17/c2a0e15c2cd5a8e788389b280996db927b923410de676ec5c7b2695e9261/gymnasium-1.2.0.tar.gz", hash = "sha256:344e87561012558f603880baf264ebc97f8a5c997a957b0c9f910281145534b0", size = 821142 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/e2/a111dbb8625af467ea4760a1373d6ef27aac3137931219902406ccc05423/gymnasium-1.2.0-py3-none-any.whl", hash = "sha256:fc4a1e4121a9464c29b4d7dc6ade3fbeaa36dea448682f5f71a6d2c17489ea76", size = 944301 },
 ]
 
 [[package]]
@@ -3547,6 +3613,24 @@ wheels = [
 ]
 
 [[package]]
+name = "playwright"
+version = "1.32.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "greenlet" },
+    { name = "pyee" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c8/2b/e2f7e616e8c04af1a6922cc40182680239a5d76ec235aa4d063080f6ad72/playwright-1.32.1-py3-none-macosx_10_13_x86_64.whl", hash = "sha256:e2f919e8611f598d6e81bd12ab24c5987955b05fc663c98b862034a955387300", size = 32859950 },
+    { url = "https://files.pythonhosted.org/packages/6f/28/a2d138d740c560d62277a8b4c9b3330064ee9484507678c15e0f7d3f77fb/playwright-1.32.1-py3-none-macosx_11_0_arm64.whl", hash = "sha256:5dbf28b8256c2f570a66d6a7c04cd0bfb5225e696e01f85cf5aa49e29ea95b42", size = 31172180 },
+    { url = "https://files.pythonhosted.org/packages/4b/b7/705759b492b69c757c662d4ce6c881c6856fa909e317c123bfb356a3c5a0/playwright-1.32.1-py3-none-macosx_11_0_universal2.whl", hash = "sha256:42473495f8af0279d868cc541d0c6d3733a8adb117253499dae85203104b0824", size = 32859953 },
+    { url = "https://files.pythonhosted.org/packages/d2/b6/e6c73bc0ac5d3cf62ca2a9e3e9bbee49131411fd4414e867c37cf55512db/playwright-1.32.1-py3-none-manylinux1_x86_64.whl", hash = "sha256:83123330e2913a28d11bb8846f7c81a4736553c80f3e9748d213bcaa24fafe91", size = 35236727 },
+    { url = "https://files.pythonhosted.org/packages/1c/ad/4cce7baf3b36e73a9c47264b6ab129642e592499056605a1d0a15c253dfa/playwright-1.32.1-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d56a743f7d88a313b25a88422779c64e5d5a95baa805b9dfd1c5785aa01d217d", size = 35124678 },
+    { url = "https://files.pythonhosted.org/packages/14/78/9404632712b0b2e4c182acee42ee10a6eef7147be8cec4693522300cfe8f/playwright-1.32.1-py3-none-win32.whl", hash = "sha256:274bfdd413a979346ce66e99c993c105a123e48da591a65638e5cdf518c90172", size = 29003954 },
+    { url = "https://files.pythonhosted.org/packages/92/f6/e4e64f8787ad8b47357b3d57aab61dea0757311d6397ac403ef2b9a44d71/playwright-1.32.1-py3-none-win_amd64.whl", hash = "sha256:32bb5645904b5ba3096a4696c70ce3213eb2310c77273140dc5de14498a84134", size = 29003957 },
+]
+
+[[package]]
 name = "pluggy"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4006,6 +4090,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b8/e9/1f7efbe20d0b2b10f6718944b5d8ece9152390904f29a78e68d4e7961159/pydantic_core-2.33.2-pp311-pypy311_pp73-musllinux_1_1_armv7l.whl", hash = "sha256:de4b83bb311557e439b9e186f733f6c645b9417c84e2eb8203f3f820a4b988bf", size = 2239013 },
     { url = "https://files.pythonhosted.org/packages/3c/b2/5309c905a93811524a49b4e031e9851a6b00ff0fb668794472ea7746b448/pydantic_core-2.33.2-pp311-pypy311_pp73-musllinux_1_1_x86_64.whl", hash = "sha256:82f68293f055f51b51ea42fafc74b6aad03e70e191799430b90c13d643059ebb", size = 2238715 },
     { url = "https://files.pythonhosted.org/packages/32/56/8a7ca5d2cd2cda1d245d34b1c9a942920a718082ae8e54e5f3e5a58b7add/pydantic_core-2.33.2-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:329467cecfb529c925cf2bbd4d60d2c509bc2fb52a20c1045bf09bb70971a9c1", size = 2066757 },
+]
+
+[[package]]
+name = "pyee"
+version = "9.0.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/99/d0/32803671d5d9dc032c766ad6c0716db98fa9b2c6ad9ec544f04849e9d3c7/pyee-9.0.4.tar.gz", hash = "sha256:2770c4928abc721f46b705e6a72b0c59480c4a69c9a83ca0b00bb994f1ea4b32", size = 20232 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c7/54/10695d113f03688d79d24bbd7eca30b0e386cbc6d2743ffb68dcae131bf6/pyee-9.0.4-py2.py3-none-any.whl", hash = "sha256:9f066570130c554e9cc12de5a9d86f57c7ee47fece163bbdaa3e9c933cfbdfa5", size = 14919 },
 ]
 
 [[package]]
@@ -4491,6 +4587,17 @@ sglang = [
 vllm = [
     { name = "vllm" },
 ]
+webarena = [
+    { name = "aiolimiter" },
+    { name = "beartype" },
+    { name = "flask" },
+    { name = "gymnasium" },
+    { name = "nltk" },
+    { name = "pillow" },
+    { name = "playwright" },
+    { name = "types-tqdm" },
+    { name = "webarena" },
+]
 
 [package.dev-dependencies]
 gpu = [
@@ -4512,24 +4619,33 @@ gpu = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiolimiter", marker = "extra == 'webarena'", specifier = ">=1.2.1" },
     { name = "apex", marker = "extra == 'compile'", git = "https://github.com/NVIDIA/apex.git" },
+    { name = "beartype", marker = "extra == 'webarena'", specifier = "==0.12.0" },
     { name = "datasets", specifier = ">=3.6.0" },
     { name = "dill", specifier = ">=0.3.8" },
     { name = "flash-attn", marker = "extra == 'compile'", specifier = ">=2.7.4.post1" },
+    { name = "flask", marker = "extra == 'webarena'", specifier = ">=3.1.1" },
+    { name = "gymnasium", marker = "extra == 'webarena'", specifier = ">=1.2.0" },
     { name = "hydra-core", specifier = ">=1.3.2" },
     { name = "ipython", specifier = ">=8.37.0" },
+    { name = "nltk", marker = "extra == 'webarena'", specifier = ">=3.9.1" },
     { name = "numpy", specifier = ">=1.26.4" },
     { name = "pandas", specifier = ">=2.3.0" },
+    { name = "pillow", marker = "extra == 'webarena'", specifier = ">=11.2.1" },
     { name = "pip", specifier = ">=25.1.1" },
+    { name = "playwright", marker = "extra == 'webarena'", specifier = "==1.32.1" },
     { name = "pyarrow", specifier = ">=19.0.0" },
     { name = "pybind11", specifier = ">=2.13.6" },
     { name = "setuptools", specifier = ">=80.9.0" },
     { name = "sglang", extras = ["all"], marker = "extra == 'sglang'", specifier = "==0.4.6.post5" },
     { name = "transformer-engine", marker = "extra == 'compile'", git = "https://github.com/NVIDIA/TransformerEngine.git?rev=v2.3" },
+    { name = "types-tqdm", marker = "extra == 'webarena'", specifier = ">=4.67.0.20250516" },
     { name = "vllm", marker = "extra == 'vllm'", specifier = "==0.8.2" },
     { name = "wandb", specifier = ">=0.20.1" },
+    { name = "webarena", marker = "extra == 'webarena'", directory = "thirdparty/webarena" },
 ]
-provides-extras = ["compile", "sglang", "vllm"]
+provides-extras = ["compile", "sglang", "vllm", "webarena"]
 
 [package.metadata.requires-dev]
 gpu = [
@@ -5509,6 +5625,30 @@ wheels = [
 ]
 
 [[package]]
+name = "types-requests"
+version = "2.32.4.20250611"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6d/7f/73b3a04a53b0fd2a911d4ec517940ecd6600630b559e4505cc7b68beb5a0/types_requests-2.32.4.20250611.tar.gz", hash = "sha256:741c8777ed6425830bf51e54d6abe245f79b4dcb9019f1622b773463946bf826", size = 23118 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3d/ea/0be9258c5a4fa1ba2300111aa5a0767ee6d18eb3fd20e91616c12082284d/types_requests-2.32.4.20250611-py3-none-any.whl", hash = "sha256:ad2fe5d3b0cb3c2c902c8815a70e7fb2302c4b8c1f77bdcd738192cdb3878072", size = 20643 },
+]
+
+[[package]]
+name = "types-tqdm"
+version = "4.67.0.20250516"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "types-requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bd/07/eb40de2dc2ff2d1a53180330981b1bdb42313ab4e1b11195d8d64c878b3c/types_tqdm-4.67.0.20250516.tar.gz", hash = "sha256:230ccab8a332d34f193fc007eb132a6ef54b4512452e718bf21ae0a7caeb5a6b", size = 17232 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/92/df621429f098fc573a63a8ba348e731c3051b397df0cff278f8887f28d24/types_tqdm-4.67.0.20250516-py3-none-any.whl", hash = "sha256:1dd9b2c65273f2342f37e5179bc6982df86b6669b3376efc12aef0a29e35d36d", size = 24032 },
+]
+
+[[package]]
 name = "typing-extensions"
 version = "4.14.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5823,6 +5963,22 @@ sdist = { url = "https://files.pythonhosted.org/packages/6c/63/53559446a878410fc
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fd/84/fd2ba7aafacbad3c4201d395674fc6348826569da3c0937e75505ead3528/wcwidth-0.2.13-py2.py3-none-any.whl", hash = "sha256:3da69048e4540d84af32131829ff948f1e022c1c6bdb8d6102117aac784f6859", size = 34166 },
 ]
+
+[[package]]
+name = "webarena"
+version = "0.0.0"
+source = { directory = "thirdparty/webarena" }
+
+[package.metadata]
+requires-dist = [
+    { name = "mypy", marker = "extra == 'dev'", specifier = "==0.991" },
+    { name = "nbmake", marker = "extra == 'dev'" },
+    { name = "pre-commit", marker = "extra == 'dev'", specifier = "==3.0.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = "==7.1.2" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'" },
+    { name = "types-requests", marker = "extra == 'dev'" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "websockets"
