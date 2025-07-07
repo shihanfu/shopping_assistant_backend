@@ -39,6 +39,7 @@ dependencies = [
   "msgspec>=0.19.0",
   "megatron-core==0.12.0",
   "pip>=25.1.1",
+  "verl>=0.1.0",
 ]
 requires-python = ">=3.10"
 
@@ -51,6 +52,7 @@ version = "2.7.4.post1"
 apex = {git = "https://github.com/NVIDIA/apex.git"}
 megatron-core = {git = "https://github.com/NVIDIA/Megatron-LM.git", rev = "core_v0.12.0"}
 transformer-engine = {git = "https://github.com/NVIDIA/TransformerEngine.git", rev = "v2.3"}
+verl = {path = "thirdparty/verl"}
 
 [project.optional-dependencies]
 compile = ["flash-attn>=2.7.4.post1", "apex", "transformer-engine"]
