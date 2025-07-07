@@ -4439,31 +4439,16 @@ name = "rl-web-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "accelerate" },
-    { name = "codetiming" },
     { name = "datasets" },
-    { name = "dill" },
-    { name = "huggingface-hub" },
     { name = "hydra-core" },
-    { name = "megatron-core" },
-    { name = "msgspec" },
     { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-12-rl-web-agent-vllm'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version < '3.11' and extra == 'extra-12-rl-web-agent-sglang') or (python_full_version < '3.11' and extra != 'extra-12-rl-web-agent-vllm') or (extra == 'extra-12-rl-web-agent-sglang' and extra == 'extra-12-rl-web-agent-vllm')" },
     { name = "numpy", version = "2.3.0", source = { registry = "https://pypi.org/simple" }, marker = "(python_full_version >= '3.11' and extra == 'extra-12-rl-web-agent-sglang') or (python_full_version >= '3.11' and extra != 'extra-12-rl-web-agent-vllm') or (extra == 'extra-12-rl-web-agent-sglang' and extra == 'extra-12-rl-web-agent-vllm')" },
     { name = "pandas" },
-    { name = "peft" },
     { name = "pip" },
     { name = "pyarrow" },
     { name = "pybind11" },
-    { name = "pylatexenc" },
-    { name = "ray", extra = ["default"] },
     { name = "setuptools" },
-    { name = "tensordict" },
-    { name = "torch-memory-saver" },
-    { name = "torchdata" },
-    { name = "torchvision" },
-    { name = "transformers" },
-    { name = "verl" },
     { name = "wandb" },
 ]
 
@@ -4480,39 +4465,62 @@ vllm = [
     { name = "vllm" },
 ]
 
+[package.dev-dependencies]
+gpu = [
+    { name = "accelerate" },
+    { name = "codetiming" },
+    { name = "dill" },
+    { name = "huggingface-hub" },
+    { name = "megatron-core" },
+    { name = "msgspec" },
+    { name = "peft" },
+    { name = "pylatexenc" },
+    { name = "ray", extra = ["default"] },
+    { name = "tensordict" },
+    { name = "torch-memory-saver" },
+    { name = "torchdata" },
+    { name = "torchvision" },
+    { name = "transformers" },
+    { name = "verl" },
+]
+
 [package.metadata]
 requires-dist = [
-    { name = "accelerate", specifier = ">=1.7.0" },
     { name = "apex", marker = "extra == 'compile'", git = "https://github.com/NVIDIA/apex.git" },
-    { name = "codetiming", specifier = ">=1.4.0" },
     { name = "datasets", specifier = ">=3.6.0" },
-    { name = "dill", specifier = ">=0.3.8" },
     { name = "flash-attn", marker = "extra == 'compile'", specifier = ">=2.7.4.post1" },
-    { name = "huggingface-hub", specifier = ">=0.33.0" },
     { name = "hydra-core", specifier = ">=1.3.2" },
-    { name = "megatron-core", git = "https://github.com/NVIDIA/Megatron-LM.git?rev=core_v0.12.0" },
-    { name = "msgspec", specifier = ">=0.19.0" },
     { name = "numpy", specifier = ">=1.26.4" },
     { name = "pandas", specifier = ">=2.3.0" },
-    { name = "peft", specifier = ">=0.15.2" },
     { name = "pip", specifier = ">=25.1.1" },
     { name = "pyarrow", specifier = ">=19.0.0" },
     { name = "pybind11", specifier = ">=2.13.6" },
-    { name = "pylatexenc", specifier = ">=2.10" },
-    { name = "ray", extras = ["default"], specifier = ">=2.10" },
     { name = "setuptools", specifier = ">=80.9.0" },
     { name = "sglang", extras = ["all"], marker = "extra == 'sglang'", specifier = "==0.4.6.post5" },
-    { name = "tensordict", specifier = "<=0.6.2" },
-    { name = "torch-memory-saver", specifier = ">=0.0.5" },
-    { name = "torchdata", specifier = ">=0.11.0" },
-    { name = "torchvision", specifier = ">=0.21.0" },
     { name = "transformer-engine", marker = "extra == 'compile'", git = "https://github.com/NVIDIA/TransformerEngine.git?rev=v2.3" },
-    { name = "transformers", specifier = ">=4.51.1" },
-    { name = "verl", directory = "thirdparty/verl" },
     { name = "vllm", marker = "extra == 'vllm'", specifier = "==0.8.2" },
     { name = "wandb", specifier = ">=0.20.1" },
 ]
 provides-extras = ["compile", "sglang", "vllm"]
+
+[package.metadata.requires-dev]
+gpu = [
+    { name = "accelerate", specifier = ">=1.7.0" },
+    { name = "codetiming", specifier = ">=1.4.0" },
+    { name = "dill", specifier = ">=0.3.8" },
+    { name = "huggingface-hub", specifier = ">=0.33.0" },
+    { name = "megatron-core", git = "https://github.com/NVIDIA/Megatron-LM.git?rev=core_v0.12.0" },
+    { name = "msgspec", specifier = ">=0.19.0" },
+    { name = "peft", specifier = ">=0.15.2" },
+    { name = "pylatexenc", specifier = ">=2.10" },
+    { name = "ray", extras = ["default"], specifier = ">=2.10" },
+    { name = "tensordict", specifier = "<=0.6.2" },
+    { name = "torch-memory-saver", specifier = ">=0.0.5" },
+    { name = "torchdata", specifier = ">=0.11.0" },
+    { name = "torchvision", specifier = ">=0.21.0" },
+    { name = "transformers", specifier = ">=4.51.1" },
+    { name = "verl", directory = "thirdparty/verl" },
+]
 
 [[package]]
 name = "rpds-py"
