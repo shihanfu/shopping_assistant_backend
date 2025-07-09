@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -14,8 +15,9 @@ from aiohttp.web_response import Response
 
 # ─── CONFIGURATION ──────────────────────────────────────────────────────────
 
-CLIENT_LISTEN_PORT = 8082
-API_GATEWAY_URL = "http://localhost:9090"  # Proxy server endpoint
+CLIENT_LISTEN_PORT = 8080
+# API_GATEWAY_URL = "http://localhost:9090"  # Proxy server endpoint
+API_GATEWAY_URL = "https://3he3rx88gl.execute-api.us-east-1.amazonaws.com"
 CHUNK_SIZE = 1024 * 1024  # 1MB chunks
 
 # ─── LOGGING ────────────────────────────────────────────────────────────────
@@ -25,19 +27,53 @@ logger = logging.getLogger("proxy-client-aiohttp")
 
 # ─── AWS AUTHENTICATION ────────────────────────────────────────────────────
 
-try:
-    from botocore.auth import SigV4Auth
-    from botocore.awsrequest import AWSRequest
-    from botocore.credentials import get_credentials
-    from botocore.session import get_session
 
-    session = get_session()
-    credentials = get_credentials(session)
-    aws_auth = SigV4Auth(credentials, "execute-api", "us-east-1") if credentials else None
-    logger.info("AWS authentication configured" if aws_auth else "AWS authentication not available")
-except ImportError:
-    aws_auth = None
-    logger.warning("botocore not available, AWS authentication disabled")
+class AWSAuth:
+    """AWS SigV4 authentication for aiohttp requests"""
+
+    def __init__(self):
+        self.auth = None
+        self.credentials = None
+        try:
+            from botocore.auth import SigV4Auth
+            from botocore.awsrequest import AWSRequest
+            from botocore.credentials import get_credentials
+            from botocore.session import get_session
+
+            session = get_session()
+            self.credentials = get_credentials(session)
+            if self.credentials:
+                self.auth = SigV4Auth(self.credentials, "execute-api", "us-east-1")
+                logger.info("AWS authentication configured successfully")
+            else:
+                logger.warning("AWS credentials not found")
+        except ImportError:
+            logger.warning("botocore not available, AWS authentication disabled")
+
+    def sign_request(self, method: str, url: str, headers: dict, body: bytes = None) -> dict:
+        """Sign an HTTP request with AWS SigV4"""
+        if not self.auth or not self.credentials:
+            return headers
+
+        try:
+            from botocore.awsrequest import AWSRequest
+
+            # Create AWS request object
+            aws_request = AWSRequest(method=method, url=url, headers=headers, data=body)
+
+            # Sign the request
+            self.auth.add_auth(aws_request)
+
+            # Return the signed headers
+            return dict(aws_request.headers)
+
+        except Exception as exc:
+            logger.error(f"Failed to sign request: {exc}")
+            return headers
+
+
+# Global AWS auth instance
+aws_auth = AWSAuth()
 
 # ─── PROXY CLIENT CLASS ────────────────────────────────────────────────────
 
@@ -58,6 +94,26 @@ class AIOHTTPProxyClient:
         if self.session:
             await self.session.close()
 
+    async def _make_signed_request(self, method: str, url: str, headers: dict = None, data: bytes = None, json_data: dict = None) -> aiohttp.ClientResponse:
+        """Make an HTTP request with AWS SigV4 authentication"""
+        if headers is None:
+            headers = {}
+
+        # Prepare request body
+        body = data
+        if json_data:
+            body = json.dumps(json_data).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+
+        # Sign the request
+        signed_headers = aws_auth.sign_request(method, url, headers, body)
+
+        # Make the request
+        if json_data:
+            return await self.session.request(method, url, headers=signed_headers, json=json_data)
+        else:
+            return await self.session.request(method, url, headers=signed_headers, data=data)
+
     async def _create_connection(self, target_host: str, method: str, path: str, headers: dict, body_size: int) -> str:
         """Create a new connection on the proxy server"""
         connection_id = str(uuid.uuid4())
@@ -68,12 +124,10 @@ class AIOHTTPProxyClient:
 
         # Send connection creation request to proxy server
         url = f"{API_GATEWAY_URL}/proxy/connection"
-        headers_req = {"Content-Type": "application/json"}
-
         logger.debug(f"Sending connection request to {url}")
         start_time = time.time()
 
-        async with self.session.post(url, json=metadata, headers=headers_req) as resp:
+        async with await self._make_signed_request("POST", url, json_data=metadata) as resp:
             elapsed = time.time() - start_time
             logger.debug(f"Connection creation response: {resp.status} (took {elapsed:.3f}s)")
 
@@ -94,7 +148,7 @@ class AIOHTTPProxyClient:
         url = f"{API_GATEWAY_URL}/proxy/chunk"
         start_time = time.time()
 
-        async with self.session.post(url, data=chunk_data, headers=headers) as resp:
+        async with await self._make_signed_request("POST", url, headers=headers, data=chunk_data) as resp:
             elapsed = time.time() - start_time
             logger.debug(f"Chunk send response: {resp.status} (took {elapsed:.3f}s)")
 
@@ -115,7 +169,7 @@ class AIOHTTPProxyClient:
         url = f"{API_GATEWAY_URL}/proxy/response"
         start_time = time.time()
 
-        async with self.session.get(url, headers=headers) as resp:
+        async with await self._make_signed_request("GET", url, headers=headers) as resp:
             elapsed = time.time() - start_time
             logger.debug(f"Metadata response: {resp.status} (took {elapsed:.3f}s)")
 
@@ -137,7 +191,7 @@ class AIOHTTPProxyClient:
         url = f"{API_GATEWAY_URL}/proxy/response"
         start_time = time.time()
 
-        async with self.session.get(url, headers=headers) as resp:
+        async with await self._make_signed_request("GET", url, headers=headers) as resp:
             elapsed = time.time() - start_time
 
             if resp.status == 200:
@@ -320,6 +374,7 @@ async def main():
 
     print(f"Proxy client listening on 0.0.0.0:{CLIENT_LISTEN_PORT}")
     print(f"Configure your application to use http://localhost:{CLIENT_LISTEN_PORT} as HTTP proxy")
+    print(f"AWS Authentication: {'Enabled' if aws_auth.auth else 'Disabled'}")
 
     # Keep the server running
     try:

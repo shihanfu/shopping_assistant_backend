@@ -244,9 +244,6 @@ async def forward_request(conn: Connection):
             else:
                 excluded_headers.append(k)
 
-        # Add host header
-        headers["Host"] = conn.target_host
-
         logger.debug(f"Forwarding {len(headers)} headers (excluded: {excluded_headers})")
         logger.debug(f"Headers: {headers}")
 
