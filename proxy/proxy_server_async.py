@@ -239,7 +239,7 @@ async def forward_request(conn: Connection):
         excluded_headers = []
         for k, v in conn.headers.items():
             k_lower = k.lower()
-            if k_lower not in ("host", "connection", "proxy-connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade", "content-length"):
+            if k_lower not in ("connection", "proxy-connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade", "content-length"):
                 headers[k] = v
             else:
                 excluded_headers.append(k)
