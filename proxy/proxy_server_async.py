@@ -12,7 +12,8 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-import aiohttp
+# import aiohttp
+import httpx
 from quart import Quart, Response, jsonify, request
 
 # Set up detailed logging
@@ -247,24 +248,31 @@ async def forward_request(conn: Connection):
         logger.debug(f"Forwarding {len(headers)} headers (excluded: {excluded_headers})")
         logger.debug(f"Headers: {headers}")
 
-        # Forward request to target server using aiohttp
+        # Forward request to target server using httpx (raw bytes passthrough)
         logger.info("Sending request to target server...")
         forward_start = time.time()
 
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.request(method=conn.method, url=target_url, headers=headers, data=complete_body, allow_redirects=False) as resp:
-                forward_elapsed = time.time() - forward_start
-                logger.info(f"Target server responded: {resp.status} (took {forward_elapsed:.3f}s)")
+        timeout = httpx.Timeout(30.0)
 
-                # Store response
-                conn.response_status = resp.status
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                method=conn.method,
+                url=target_url,
+                headers=headers,
+                content=complete_body,
+                follow_redirects=False,
+            ) as resp:
+                forward_elapsed = time.time() - forward_start
+                logger.info(f"Target server responded: {resp.status_code} (took {forward_elapsed:.3f}s)")
+
+                # Store response status and headers
+                conn.response_status = resp.status_code
                 conn.response_headers = dict(resp.headers)
                 logger.debug(f"Response headers from target: {conn.response_headers}")
 
-                # Read response data
+                # Read response data exactly as received (no auto-decompression)
                 logger.info("Reading response body from target server...")
-                response_data = await resp.read()
+                response_data = b"".join([chunk async for chunk in resp.aiter_raw()])
 
                 conn.response_data = response_data
                 conn.response_complete = True

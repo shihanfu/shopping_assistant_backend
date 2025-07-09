@@ -8,10 +8,8 @@ import uuid
 from io import BytesIO
 from urllib.parse import urlparse
 
-import aiohttp
-from aiohttp import ClientSession, web
-from aiohttp.web_request import Request
-from aiohttp.web_response import Response
+import httpx
+from quart import Quart, Request, Response
 
 # ─── CONFIGURATION ──────────────────────────────────────────────────────────
 
@@ -20,16 +18,28 @@ CLIENT_LISTEN_PORT = 8080
 API_GATEWAY_URL = "https://3he3rx88gl.execute-api.us-east-1.amazonaws.com"
 CHUNK_SIZE = 1024 * 1024  # 1MB chunks
 
-# ─── LOGGING ────────────────────────────────────────────────────────────────
-
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S")
-logger = logging.getLogger("proxy-client-aiohttp")
+logger = logging.getLogger("proxy-client-httpx")
+
+
+# Target host rewrite configuration
+# Maps original host:port to new host:port
+TARGET_HOST_REWRITES = {
+    "test.com:80": "10.58.210.239:80",
+    "test.com": "10.58.210.239:80",  # Also handle without explicit port
+    # "test.com": "127.0.0.1:1234",
+    # Add more rewrites as needed:
+    # "api.example.com:443": "192.168.1.100:443",
+    # "old-server.com": "new-server.com",
+}
+
+# ─── LOGGING ────────────────────────────────────────────────────────────────
 
 # ─── AWS AUTHENTICATION ────────────────────────────────────────────────────
 
 
 class AWSAuth:
-    """AWS SigV4 authentication for aiohttp requests"""
+    """AWS SigV4 authentication for httpx requests"""
 
     def __init__(self):
         self.auth = None
@@ -53,6 +63,7 @@ class AWSAuth:
     def sign_request(self, method: str, url: str, headers: dict, body: bytes = None) -> dict:
         """Sign an HTTP request with AWS SigV4"""
         if not self.auth or not self.credentials:
+            logger.debug("No AWS auth configured, returning unsigned headers")
             return headers
 
         try:
@@ -61,14 +72,26 @@ class AWSAuth:
             # Create AWS request object
             aws_request = AWSRequest(method=method, url=url, headers=headers, data=body)
 
+            # Log request details for debugging
+            logger.debug(f"Signing request: {method} {url}")
+            logger.debug(f"Request body length: {len(body) if body else 0}")
+            logger.debug(f"Original headers: {headers}")
+
             # Sign the request
             self.auth.add_auth(aws_request)
 
+            # Log signed headers for debugging
+            signed_headers = dict(aws_request.headers)
+            logger.debug(f"Signed headers: {signed_headers}")
+
             # Return the signed headers
-            return dict(aws_request.headers)
+            return signed_headers
 
         except Exception as exc:
             logger.error(f"Failed to sign request: {exc}")
+            import traceback
+
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return headers
 
 
@@ -78,41 +101,139 @@ aws_auth = AWSAuth()
 # ─── PROXY CLIENT CLASS ────────────────────────────────────────────────────
 
 
-class AIOHTTPProxyClient:
-    """Async HTTP proxy client using aiohttp"""
+class HTTPXProxyClient:
+    """Async HTTP proxy client using httpx"""
 
     def __init__(self):
-        self.session = None
+        self.client = None
+
+    async def start(self):
+        """Start the HTTP client"""
+        if self.client is None:
+            timeout = httpx.Timeout(300.0)  # 5 minute timeout
+            self.client = httpx.AsyncClient(timeout=timeout)
+            logger.info("HTTP client started")
+
+    async def stop(self):
+        """Stop the HTTP client"""
+        if self.client:
+            await self.client.aclose()
+            self.client = None
+            logger.info("HTTP client stopped")
 
     async def __aenter__(self):
-        # Create aiohttp client session
-        timeout = aiohttp.ClientTimeout(total=300)  # 5 minute timeout
-        self.session = ClientSession(timeout=timeout)
+        await self.start()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.session:
-            await self.session.close()
+        await self.stop()
 
-    async def _make_signed_request(self, method: str, url: str, headers: dict = None, data: bytes = None, json_data: dict = None) -> aiohttp.ClientResponse:
-        """Make an HTTP request with AWS SigV4 authentication"""
+    def _rewrite_target_host(self, original_host: str) -> str:
+        """Rewrite target host based on configuration"""
+        # Check for exact match first
+        if original_host in TARGET_HOST_REWRITES:
+            rewritten = TARGET_HOST_REWRITES[original_host]
+            logger.info(f"Host rewrite: {original_host} → {rewritten}")
+            return rewritten
+
+        # If no port specified, try adding default ports
+        if ":" not in original_host:
+            # Try with default HTTP port
+            http_key = f"{original_host}:80"
+            if http_key in TARGET_HOST_REWRITES:
+                rewritten = TARGET_HOST_REWRITES[http_key]
+                logger.info(f"Host rewrite: {original_host} → {rewritten} (added default port 80)")
+                return rewritten
+
+            # Try with default HTTPS port
+            https_key = f"{original_host}:443"
+            if https_key in TARGET_HOST_REWRITES:
+                rewritten = TARGET_HOST_REWRITES[https_key]
+                logger.info(f"Host rewrite: {original_host} → {rewritten} (added default port 443)")
+                return rewritten
+
+        # No rewrite found, return original
+        logger.debug(f"No host rewrite configured for: {original_host}")
+        return original_host
+
+    async def _make_signed_request(self, method: str, url: str, headers: dict = None, data: bytes = None, json_data: dict = None, max_retries: int = 3) -> httpx.Response:
+        """Make an HTTP request with AWS SigV4 authentication and automatic retry with progressive sleep"""
         if headers is None:
             headers = {}
 
-        # Prepare request body
+        # Prepare request body - ensure consistency between signing and sending
         body = data
         if json_data:
-            body = json.dumps(json_data).encode("utf-8")
+            body = json.dumps(json_data, separators=(",", ":")).encode("utf-8")
             headers["Content-Type"] = "application/json"
 
-        # Sign the request
-        signed_headers = aws_auth.sign_request(method, url, headers, body)
+        # Define retry conditions
+        def should_retry(response: httpx.Response = None, exception: Exception = None) -> bool:
+            if exception:
+                # Don't retry on client closure or state issues
+                error_msg = str(exception).lower()
+                if "client has been closed" in error_msg or "client is closed" in error_msg:
+                    return False
+                # Retry on network errors, timeouts, connection errors
+                return isinstance(exception, (httpx.RequestError, httpx.TimeoutException, httpx.ConnectError))
+            if response:
+                # Retry on 5xx server errors, 429 rate limiting, 502/503/504 gateway errors
+                return response.status_code in (429, 500, 502, 503, 504)
+            return False
 
-        # Make the request
-        if json_data:
-            return await self.session.request(method, url, headers=signed_headers, json=json_data)
-        else:
-            return await self.session.request(method, url, headers=signed_headers, data=data)
+        last_exception = None
+        last_response = None
+
+        for attempt in range(max_retries + 1):
+            try:
+                # Sign the request with the exact body that will be sent (resign on each retry for fresh timestamp)
+                signed_headers = aws_auth.sign_request(method, url, headers.copy(), body)
+
+                if attempt > 0:
+                    logger.info(f"Retry attempt {attempt}/{max_retries} for {method} {url}")
+
+                # Make the request with the same body used for signing
+                response = await self.client.request(method, url, headers=signed_headers, content=body)
+
+                # Check if we should retry based on response
+                if should_retry(response=response):
+                    last_response = response
+                    if attempt < max_retries:
+                        sleep_time = (2**attempt) * 1.0  # Exponential backoff: 1s, 2s, 4s, 8s...
+                        logger.warning(f"Request failed with status {response.status_code}, retrying in {sleep_time}s (attempt {attempt + 1}/{max_retries + 1})")
+                        await asyncio.sleep(sleep_time)
+                        continue
+                    else:
+                        logger.error(f"Request failed after {max_retries} retries, final status: {response.status_code}")
+                        return response
+
+                # Success case
+                if attempt > 0:
+                    logger.info(f"Request succeeded on retry attempt {attempt}")
+                return response
+
+            except Exception as exc:
+                last_exception = exc
+                if should_retry(exception=exc):
+                    if attempt < max_retries:
+                        sleep_time = (2**attempt) * 1.0  # Exponential backoff: 1s, 2s, 4s, 8s...
+                        logger.warning(f"Request failed with exception {type(exc).__name__}: {exc}, retrying in {sleep_time}s (attempt {attempt + 1}/{max_retries + 1})")
+                        await asyncio.sleep(sleep_time)
+                        continue
+                    else:
+                        logger.error(f"Request failed after {max_retries} retries with exception: {exc}")
+                        raise exc
+                else:
+                    # Don't retry on non-retryable exceptions
+                    logger.error(f"Request failed with non-retryable exception: {exc}")
+                    raise exc
+
+        # This should never be reached, but just in case
+        if last_exception:
+            raise last_exception
+        if last_response:
+            return last_response
+        raise Exception("Unexpected error in retry logic")
 
     async def _create_connection(self, target_host: str, method: str, path: str, headers: dict, body_size: int) -> str:
         """Create a new connection on the proxy server"""
@@ -127,17 +248,16 @@ class AIOHTTPProxyClient:
         logger.debug(f"Sending connection request to {url}")
         start_time = time.time()
 
-        async with await self._make_signed_request("POST", url, json_data=metadata) as resp:
-            elapsed = time.time() - start_time
-            logger.debug(f"Connection creation response: {resp.status} (took {elapsed:.3f}s)")
+        resp = await self._make_signed_request("POST", url, json_data=metadata)
+        elapsed = time.time() - start_time
+        logger.debug(f"Connection creation response: {resp.status_code} (took {elapsed:.3f}s)")
 
-            if resp.status == 200:
-                logger.info(f"Successfully created connection {connection_id}")
-                return connection_id
-            else:
-                error_text = await resp.text()
-                logger.error(f"Failed to create connection: {resp.status} - {error_text}")
-                raise Exception(f"Failed to create connection: {resp.status}")
+        if resp.status_code == 200:
+            logger.info(f"Successfully created connection {connection_id}")
+            return connection_id
+        else:
+            logger.error(f"Failed to create connection: {resp.status_code} - {resp.text}")
+            raise Exception(f"Failed to create connection: {resp.status_code}")
 
     async def _send_chunk(self, connection_id: str, chunk_data: bytes, is_final: bool = False) -> dict:
         """Send a chunk of data to the proxy server"""
@@ -148,18 +268,17 @@ class AIOHTTPProxyClient:
         url = f"{API_GATEWAY_URL}/proxy/chunk"
         start_time = time.time()
 
-        async with await self._make_signed_request("POST", url, headers=headers, data=chunk_data) as resp:
-            elapsed = time.time() - start_time
-            logger.debug(f"Chunk send response: {resp.status} (took {elapsed:.3f}s)")
+        resp = await self._make_signed_request("POST", url, headers=headers, data=chunk_data)
+        elapsed = time.time() - start_time
+        logger.debug(f"Chunk send response: {resp.status_code} (took {elapsed:.3f}s)")
 
-            if resp.status != 200:
-                error_text = await resp.text()
-                logger.error(f"Failed to send chunk: {resp.status} - {error_text}")
-                raise Exception(f"Failed to send chunk: {resp.status}")
+        if resp.status_code != 200:
+            logger.error(f"Failed to send chunk: {resp.status_code} - {resp.text}")
+            raise Exception(f"Failed to send chunk: {resp.status_code}")
 
-            result = await resp.json()
-            logger.debug(f"Chunk send result: {result}")
-            return result
+        result = resp.json()
+        logger.debug(f"Chunk send result: {result}")
+        return result
 
     async def _get_response_metadata(self, connection_id: str) -> tuple:
         """Get response metadata from the proxy server"""
@@ -169,19 +288,18 @@ class AIOHTTPProxyClient:
         url = f"{API_GATEWAY_URL}/proxy/response"
         start_time = time.time()
 
-        async with await self._make_signed_request("GET", url, headers=headers) as resp:
-            elapsed = time.time() - start_time
-            logger.debug(f"Metadata response: {resp.status} (took {elapsed:.3f}s)")
+        resp = await self._make_signed_request("GET", url, headers=headers)
+        elapsed = time.time() - start_time
+        logger.debug(f"Metadata response: {resp.status_code} (took {elapsed:.3f}s)")
 
-            if resp.status == 200:
-                metadata = await resp.json()
-                logger.info(f"Got response metadata: status={metadata['status']}, has_body={metadata['has_body']}")
-                logger.debug(f"Response headers: {metadata['headers']}")
-                return metadata["status"], metadata["headers"], metadata["has_body"]
-            else:
-                error_text = await resp.text()
-                logger.error(f"Failed to get response metadata: {resp.status} - {error_text}")
-                raise Exception(f"Failed to get response metadata: {resp.status}")
+        if resp.status_code == 200:
+            metadata = resp.json()
+            logger.info(f"Got response metadata: status={metadata['status']}, has_body={metadata['has_body']}")
+            logger.debug(f"Response headers: {metadata['headers']}")
+            return metadata["status"], metadata["headers"], metadata["has_body"]
+        else:
+            logger.error(f"Failed to get response metadata: {resp.status_code} - {resp.text}")
+            raise Exception(f"Failed to get response metadata: {resp.status_code}")
 
     async def _get_response_chunk(self, connection_id: str, chunk_index: int) -> tuple:
         """Get a chunk of response body data from the proxy server"""
@@ -191,18 +309,17 @@ class AIOHTTPProxyClient:
         url = f"{API_GATEWAY_URL}/proxy/response"
         start_time = time.time()
 
-        async with await self._make_signed_request("GET", url, headers=headers) as resp:
-            elapsed = time.time() - start_time
+        resp = await self._make_signed_request("GET", url, headers=headers)
+        elapsed = time.time() - start_time
 
-            if resp.status == 200:
-                has_more = resp.headers.get("X-More-Chunks", "false") == "true"
-                content = await resp.read()
-                logger.debug(f"Got response chunk {chunk_index}: {len(content)} bytes, has_more={has_more} (took {elapsed:.3f}s)")
-                return content, has_more
-            else:
-                error_text = await resp.text()
-                logger.error(f"Failed to get response chunk {chunk_index}: {resp.status} - {error_text}")
-                raise Exception(f"Failed to get response chunk: {resp.status}")
+        if resp.status_code == 200:
+            has_more = resp.headers.get("X-More-Chunks", "false") == "true"
+            content = resp.content
+            logger.debug(f"Got response chunk {chunk_index}: {len(content)} bytes, has_more={has_more} (took {elapsed:.3f}s)")
+            return content, has_more
+        else:
+            logger.error(f"Failed to get response chunk {chunk_index}: {resp.status_code} - {resp.text}")
+            raise Exception(f"Failed to get response chunk: {resp.status_code}")
 
     async def handle_proxy_request(self, request: Request) -> Response:
         """Handle HTTP proxy request by splitting into chunks if needed"""
@@ -219,20 +336,23 @@ class AIOHTTPProxyClient:
                 request_path = parsed.path or "/"
                 if parsed.query:
                     request_path += "?" + parsed.query
-                target_host = parsed.netloc
-                logger.debug(f"Parsed URL - target_host: {target_host}, path: {request_path}")
+                original_target_host = parsed.netloc
+                logger.debug(f"Parsed URL - original target_host: {original_target_host}, path: {request_path}")
             else:
                 request_path = path
-                target_host = request.headers.get("Host", "")
-                logger.debug(f"Direct request - target_host: {target_host}, path: {request_path}")
+                original_target_host = request.headers.get("Host", "")
+                logger.debug(f"Direct request - original target_host: {original_target_host}, path: {request_path}")
+
+            # Apply host rewriting
+            target_host = self._rewrite_target_host(original_target_host)
 
             # Read request body
-            body = await request.read()
+            body = await request.get_data()
             body_size = len(body) if body else 0
             logger.info(f"Request body size: {body_size} bytes")
 
             # Handle request with unified chunking approach
-            response = await self._handle_request_unified(target_host, request_path, method, dict(request.headers), body)
+            response = await self._handle_request_unified(target_host, request_path, method, dict(request.headers), body, original_target_host)
 
             elapsed = time.time() - request_start
             logger.info(f"=== Request completed in {elapsed:.3f}s ===")
@@ -244,15 +364,23 @@ class AIOHTTPProxyClient:
 
             # Return proper HTTP error response
             error_message = f"Proxy client error: {exc}"
-            return web.Response(text=error_message, status=502, headers={"Content-Type": "text/plain", "Connection": "close"})
+            return Response(response=error_message, status=502, headers={"Content-Type": "text/plain", "Connection": "close"})
 
-    async def _handle_request_unified(self, target_host: str, path: str, method: str, headers: dict, body: bytes) -> Response:
+    async def _handle_request_unified(self, target_host: str, path: str, method: str, headers: dict, body: bytes, original_host: str = None) -> Response:
         """Handle all requests with unified chunking approach"""
         logger.info(f"Processing unified request for {target_host}{path}")
+        if original_host and original_host != target_host:
+            logger.info(f"Original host: {original_host} → Rewritten to: {target_host}")
 
         try:
+            # Update headers to preserve original Host header for the target server
+            updated_headers = headers.copy()
+            if original_host:
+                updated_headers["Host"] = original_host
+                logger.debug(f"Preserving original Host header: {original_host}")
+
             # Create connection
-            connection_id = await self._create_connection(target_host, method, path, headers, len(body) if body else 0)
+            connection_id = await self._create_connection(target_host, method, path, updated_headers, len(body) if body else 0)
         except Exception as exc:
             logger.error(f"Failed to create connection: {exc}")
             raise Exception(f"Connection creation failed: {exc}")
@@ -294,7 +422,7 @@ class AIOHTTPProxyClient:
             logger.error(f"Failed to get response metadata: {exc}")
             # Return a 502 response since we couldn't get the real response
             error_msg = f"Failed to get response from proxy server: {exc}"
-            return web.Response(text=error_msg, status=502, headers={"Content-Type": "text/plain", "Connection": "close"})
+            return Response(response=error_msg, status=502, headers={"Content-Type": "text/plain", "Connection": "close"})
 
         try:
             # Prepare response headers (filter out proxy-specific headers)
@@ -326,37 +454,51 @@ class AIOHTTPProxyClient:
 
             # Create and return response
             logger.info(f"Returning response: {status_code} with {len(response_body)} bytes")
-            return web.Response(body=response_body, status=status_code, headers=filtered_headers)
+            return Response(response=response_body, status=status_code, headers=filtered_headers)
 
         except Exception as exc:
             logger.error(f"Failed to get response: {exc}")
             # Return error response
             error_msg = f"Response transmission failed: {exc}"
-            return web.Response(text=error_msg, status=502, headers={"Content-Type": "text/plain", "Connection": "close"})
+            return Response(response=error_msg, status=502, headers={"Content-Type": "text/plain", "Connection": "close"})
 
 
-# ─── SERVER SETUP ──────────────────────────────────────────────────────────
+# ─── GLOBAL PROXY CLIENT ───────────────────────────────────────────────────
+
+# Global proxy client instance
+proxy_client = HTTPXProxyClient()
+
+# ─── APP SETUP ─────────────────────────────────────────────────────────────
+
+# Create Quart application
+app = Quart(__name__)
+
+# ─── ROUTE HANDLERS ────────────────────────────────────────────────────────
 
 
-async def create_app() -> web.Application:
-    """Create the aiohttp application"""
-    app = web.Application()
+@app.before_request
+async def handle_all_requests():
+    """Handle all requests through the proxy client"""
+    from quart import request
 
-    # Create proxy client instance
-    proxy_client = AIOHTTPProxyClient()
-    app["proxy_client"] = proxy_client
-
-    # Add routes - catch all HTTP methods and paths
-    app.router.add_route("*", "/{path:.*}", proxy_handler)
-
-    return app
+    return await proxy_client.handle_proxy_request(request)
 
 
-async def proxy_handler(request: Request) -> Response:
-    """Route handler that delegates to proxy client"""
-    proxy_client = request.app["proxy_client"]
-    async with proxy_client:
-        return await proxy_client.handle_proxy_request(request)
+# ─── STARTUP/SHUTDOWN HOOKS ──────────────────────────────────────────────────
+
+
+@app.before_serving
+async def startup():
+    """Initialize the proxy client on startup"""
+    logger.info("Starting proxy client...")
+    await proxy_client.start()
+
+
+@app.after_serving
+async def shutdown():
+    """Cleanup the proxy client on shutdown"""
+    logger.info("Shutting down proxy client...")
+    await proxy_client.stop()
 
 
 # ─── MAIN ────────────────────────────────────────────────────────────────────
@@ -364,25 +506,20 @@ async def proxy_handler(request: Request) -> Response:
 
 async def main():
     """Main application entry point"""
-    app = await create_app()
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-
-    site = web.TCPSite(runner, "0.0.0.0", CLIENT_LISTEN_PORT)
-    await site.start()
-
     print(f"Proxy client listening on 0.0.0.0:{CLIENT_LISTEN_PORT}")
     print(f"Configure your application to use http://localhost:{CLIENT_LISTEN_PORT} as HTTP proxy")
     print(f"AWS Authentication: {'Enabled' if aws_auth.auth else 'Disabled'}")
 
-    # Keep the server running
-    try:
-        await asyncio.Future()  # Run forever
-    except KeyboardInterrupt:
-        print("\nShutting down...")
-    finally:
-        await runner.cleanup()
+    # Show host rewrite configuration
+    if TARGET_HOST_REWRITES:
+        print(f"Host Rewrites Configured: {len(TARGET_HOST_REWRITES)} rules")
+        for original, rewritten in TARGET_HOST_REWRITES.items():
+            print(f"  {original} → {rewritten}")
+    else:
+        print("Host Rewrites: None configured")
+
+    # Start the server
+    await app.run_task(host="0.0.0.0", port=CLIENT_LISTEN_PORT, debug=False)
 
 
 def run():
