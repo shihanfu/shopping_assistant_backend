@@ -247,6 +247,8 @@ async def forward_request(conn: Connection):
 
         logger.debug(f"Forwarding {len(headers)} headers (excluded: {excluded_headers})")
         logger.debug(f"Headers: {headers}")
+        if "accept-encoding" not in headers:
+            headers["accept-encoding"] = "identity"
 
         # Forward request to target server using httpx (raw bytes passthrough)
         logger.info("Sending request to target server...")
