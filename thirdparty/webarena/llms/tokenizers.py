@@ -1,10 +1,8 @@
-from typing import Any
-
 import tiktoken
 from transformers import LlamaTokenizer  # type: ignore
 
 
-class Tokenizer(object):
+class Tokenizer:
     def __init__(self, provider: str, model_name: str) -> None:
         if provider == "openai":
             self.tokenizer = tiktoken.encoding_for_model(model_name)
@@ -14,6 +12,10 @@ class Tokenizer(object):
             self.tokenizer.add_special_tokens = False  # type: ignore[attr-defined]
             self.tokenizer.add_bos_token = False  # type: ignore[attr-defined]
             self.tokenizer.add_eos_token = False  # type: ignore[attr-defined]
+        elif provider == "bedrock":
+            # Use cl100k_base encoding for Claude models via Bedrock
+            # This is a reasonable approximation for token counting
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")
         else:
             raise NotImplementedError
 

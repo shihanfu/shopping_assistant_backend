@@ -1,4 +1,5 @@
 """Script to run end-to-end evaluation on the benchmark"""
+
 import argparse
 import glob
 import json
@@ -11,28 +12,12 @@ import time
 from pathlib import Path
 
 import openai
-
-from agent import (
-    Agent,
-    PromptAgent,
-    TeacherForcingAgent,
-    construct_agent,
-)
+from agent import Agent, PromptAgent, TeacherForcingAgent, construct_agent
 from agent.prompts import *
-from browser_env import (
-    Action,
-    ActionTypes,
-    ScriptBrowserEnv,
-    StateInfo,
-    Trajectory,
-    create_stop_action,
-)
+from browser_env import Action, ActionTypes, ScriptBrowserEnv, StateInfo, Trajectory, create_stop_action
 from browser_env.actions import is_equivalent
 from browser_env.auto_login import get_site_comb_from_filepath
-from browser_env.helper_functions import (
-    RenderHelper,
-    get_action_description,
-)
+from browser_env.helper_functions import RenderHelper, get_action_description
 from evaluation_harness import evaluator_router
 
 LOG_FOLDER = "log_files"
@@ -57,21 +42,15 @@ file_handler.setFormatter(formatter)
 
 
 def config() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Run end-to-end evaluation on the benchmark"
-    )
-    parser.add_argument(
-        "--render", action="store_true", help="Render the browser"
-    )
+    parser = argparse.ArgumentParser(description="Run end-to-end evaluation on the benchmark")
+    parser.add_argument("--render", action="store_true", help="Render the browser")
     parser.add_argument(
         "--slow_mo",
         type=int,
         default=0,
         help="Slow down the browser by the specified amount",
     )
-    parser.add_argument(
-        "--action_set_tag", default="id_accessibility_tree", help="Action type"
-    )
+    parser.add_argument("--action_set_tag", default="id_accessibility_tree", help="Action type")
     parser.add_argument(
         "--observation_type",
         choices=["accessibility_tree", "html", "image"],
@@ -129,7 +108,7 @@ def config() -> argparse.Namespace:
         "--max_obs_length",
         type=int,
         help="when not zero, will truncate the observation to this length before feeding to the model",
-        default=1920,
+        default=20000,
     )
     parser.add_argument(
         "--model_endpoint",
@@ -147,20 +126,13 @@ def config() -> argparse.Namespace:
     args = parser.parse_args()
 
     # check the whether the action space is compatible with the observation space
-    if (
-        args.action_set_tag == "id_accessibility_tree"
-        and args.observation_type != "accessibility_tree"
-    ):
-        raise ValueError(
-            f"Action type {args.action_set_tag} is incompatible with the observation type {args.observation_type}"
-        )
+    if args.action_set_tag == "id_accessibility_tree" and args.observation_type != "accessibility_tree":
+        raise ValueError(f"Action type {args.action_set_tag} is incompatible with the observation type {args.observation_type}")
 
     return args
 
 
-def early_stop(
-    trajectory: Trajectory, max_steps: int, thresholds: dict[str, int]
-) -> tuple[bool, str]:
+def early_stop(trajectory: Trajectory, max_steps: int, thresholds: dict[str, int]) -> tuple[bool, str]:
     """Check whether need to early stop"""
 
     # reach the max step
@@ -175,12 +147,7 @@ def early_stop(
     k = thresholds["parsing_failure"]
     last_k_actions = trajectory[1::2][-k:]  # type: ignore[assignment]
     if len(last_k_actions) >= k:
-        if all(
-            [
-                action["action_type"] == ActionTypes.NONE
-                for action in last_k_actions
-            ]
-        ):
+        if all([action["action_type"] == ActionTypes.NONE for action in last_k_actions]):
             return True, f"Failed to parse actions for {k} times"
 
     # Case: same action for k times
@@ -195,20 +162,12 @@ def early_stop(
 
     if last_action["action_type"] != ActionTypes.TYPE:
         if len(last_k_actions) >= k:
-            if all(
-                [
-                    is_equivalent(action, last_action)
-                    for action in last_k_actions
-                ]
-            ):
+            if all([is_equivalent(action, last_action) for action in last_k_actions]):
                 return True, f"Same action for {k} times"
 
     else:
         # check the action sequence
-        if (
-            sum([is_equivalent(action, last_action) for action in action_seq])
-            >= k
-        ):
+        if sum([is_equivalent(action, last_action) for action in action_seq]) >= k:
             return True, f"Same typing action for {k} times"
 
     return False, ""
@@ -242,9 +201,7 @@ def test(
 
     for config_file in config_file_list:
         try:
-            render_helper = RenderHelper(
-                config_file, args.result_dir, args.action_set_tag
-            )
+            render_helper = RenderHelper(config_file, args.result_dir, args.action_set_tag)
 
             # get intent
             with open(config_file) as f:
@@ -284,35 +241,28 @@ def test(
             trajectory.append(state_info)
 
             meta_data = {"action_history": ["None"]}
+            print(f"observation: {obs}")
             while True:
-                early_stop_flag, stop_info = early_stop(
-                    trajectory, max_steps, early_stop_thresholds
-                )
+                early_stop_flag, stop_info = early_stop(trajectory, max_steps, early_stop_thresholds)
 
                 if early_stop_flag:
                     action = create_stop_action(f"Early stop: {stop_info}")
                 else:
                     try:
-                        action = agent.next_action(
-                            trajectory, intent, meta_data=meta_data
-                        )
+                        action = agent.next_action(trajectory, intent, meta_data=meta_data)
                     except ValueError as e:
                         # get the error message
                         action = create_stop_action(f"ERROR: {str(e)}")
-
+                print(f"action: {action}")
                 trajectory.append(action)
 
                 action_str = get_action_description(
                     action,
                     state_info["info"]["observation_metadata"],
                     action_set_tag=args.action_set_tag,
-                    prompt_constructor=agent.prompt_constructor
-                    if isinstance(agent, PromptAgent)
-                    else None,
+                    prompt_constructor=agent.prompt_constructor if isinstance(agent, PromptAgent) else None,
                 )
-                render_helper.render(
-                    action, state_info, meta_data, args.render_screenshot
-                )
+                render_helper.render(action, state_info, meta_data, args.render_screenshot)
                 meta_data["action_history"].append(action_str)
 
                 if action["action_type"] == ActionTypes.STOP:
@@ -321,6 +271,7 @@ def test(
                 obs, _, terminated, _, info = env.step(action)
                 state_info = {"observation": obs, "info": info}
                 trajectory.append(state_info)
+                print(f"observation: {obs}")
 
                 if terminated:
                     # add a action place holder
@@ -343,9 +294,7 @@ def test(
                 logger.info(f"[Result] (FAIL) {config_file}")
 
             if args.save_trace_enabled:
-                env.save_trace(
-                    Path(args.result_dir) / "traces" / f"{task_id}.zip"
-                )
+                env.save_trace(Path(args.result_dir) / "traces" / f"{task_id}.zip")
 
         except openai.error.OpenAIError as e:
             logger.info(f"[OpenAI Error] {repr(e)}")
@@ -374,9 +323,7 @@ def prepare(args: argparse.Namespace) -> None:
     # prepare result dir
     result_dir = args.result_dir
     if not result_dir:
-        result_dir = (
-            f"cache/results_{time.strftime('%Y%m%d%H%M%S', time.localtime())}"
-        )
+        result_dir = f"cache/results_{time.strftime('%Y%m%d%H%M%S', time.localtime())}"
     if not Path(result_dir).exists():
         Path(result_dir).mkdir(parents=True, exist_ok=True)
         args.result_dir = result_dir
@@ -392,9 +339,7 @@ def prepare(args: argparse.Namespace) -> None:
 
 def get_unfinished(config_files: list[str], result_dir: str) -> list[str]:
     result_files = glob.glob(f"{result_dir}/*.html")
-    task_ids = [
-        os.path.basename(f).split(".")[0].split("_")[1] for f in result_files
-    ]
+    task_ids = [os.path.basename(f).split(".")[0].split("_")[1] for f in result_files]
     unfinished_configs = []
     for config_file in config_files:
         task_id = os.path.basename(config_file).split(".")[0]
@@ -428,11 +373,11 @@ if __name__ == "__main__":
         logger.info("No task left to run")
     else:
         print(f"Total {len(test_file_list)} tasks left")
-        args.render = False
+        # args.render = False
         args.render_screenshot = True
         args.save_trace_enabled = True
 
-        args.current_viewport_only = True
+        # args.current_viewport_only = Trueqqq\
         dump_config(args)
 
         agent = construct_agent(args)

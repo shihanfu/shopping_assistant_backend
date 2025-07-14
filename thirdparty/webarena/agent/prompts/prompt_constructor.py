@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 from typing import Any, TypedDict
 
-from browser_env import Action, ActionParsingError, Trajectory
+from browser_env import ActionParsingError, Trajectory
 from browser_env.env_config import URL_MAPPINGS
 from browser_env.utils import StateInfo
 from llms import lm_config
@@ -20,7 +20,7 @@ class Instruction(TypedDict):
     meta_data: dict[str, Any]
 
 
-class PromptConstructor(object):
+class PromptConstructor:
     def __init__(
         self,
         instruction_path: str | Path,
@@ -35,16 +35,13 @@ class PromptConstructor(object):
         self.instruction: Instruction = instruction
         self.tokenizer = tokenizer
 
-    def get_lm_api_input(
-        self, intro: str, examples: list[tuple[str, str]], current: str
-    ) -> APIInput:
-
+    def get_lm_api_input(self, intro: str, examples: list[tuple[str, str]], current: str) -> APIInput:
         """Return the require format for an API"""
         message: list[dict[str, str]] | str
         if "openai" in self.lm_config.provider:
             if self.lm_config.mode == "chat":
                 message = [{"role": "system", "content": intro}]
-                for (x, y) in examples:
+                for x, y in examples:
                     message.append(
                         {
                             "role": "system",
@@ -72,9 +69,27 @@ class PromptConstructor(object):
                 message += "Action:"
                 return message
             else:
-                raise ValueError(
-                    f"OpenAI models do not support mode {self.lm_config.mode}"
-                )
+                raise ValueError(f"OpenAI models do not support mode {self.lm_config.mode}")
+        elif "bedrock" in self.lm_config.provider:
+            if self.lm_config.mode == "chat":
+                message = [{"role": "system", "content": intro}]
+                for x, y in examples:
+                    message.append({"role": "user", "content": x})
+                    message.append({"role": "assistant", "content": y})
+                message.append({"role": "user", "content": current})
+                return message
+            elif self.lm_config.mode == "completion":
+                message = f"{intro}\n\n"
+                message += "Here are a few examples:\n"
+                for example in examples:
+                    message += f"Observation\n:{example[0]}\n\n"
+                    message += f"Action: {example[1]}\n\n"
+                message += "Now make prediction given the observation\n\n"
+                message += f"Observation\n:{current}\n\n"
+                message += "Action:"
+                return message
+            else:
+                raise ValueError(f"Bedrock models do not support mode {self.lm_config.mode}")
         elif "huggingface" in self.lm_config.provider:
             # https://huggingface.co/blog/llama2#how-to-prompt-llama-2
             # https://github.com/facebookresearch/llama/blob/main/llama/generation.py#L320
@@ -90,12 +105,7 @@ class PromptConstructor(object):
                             examples[0][1],
                         )
                     ] + examples[1:]
-                    message = "".join(
-                        [
-                            f"{BOS}{B_INST} {x.strip()} {E_INST} {y.strip()} {EOS}"
-                            for (x, y) in examples
-                        ]
-                    )
+                    message = "".join([f"{BOS}{B_INST} {x.strip()} {E_INST} {y.strip()} {EOS}" for (x, y) in examples])
                     # add the current observation
                     message += f"{BOS}{B_INST} {current.strip()} {E_INST} {self.instruction['meta_data'].get('force_prefix', '')}"
 
@@ -103,19 +113,15 @@ class PromptConstructor(object):
                 else:
                     raise ValueError("Only chat mode is supported for Llama-2")
             else:
-                raise ValueError(
-                    f"Huggingface models do not support model_tag {self.lm_config.gen_config['model_tag']}"
-                )
+                raise ValueError(f"Huggingface models do not support model_tag {self.lm_config.gen_config['model_tag']}")
         else:
-            raise NotImplementedError(
-                f"Provider {self.lm_config.provider} not implemented"
-            )
+            raise NotImplementedError(f"Provider {self.lm_config.provider} not implemented")
 
     def construct(
         self,
         trajectory: Trajectory,
         intent: str,
-        meta_data: dict[str, Any] = {},
+        meta_data: dict[str, Any] = None,
     ) -> APIInput:
         raise NotImplementedError
 
@@ -160,7 +166,7 @@ class DirectPromptConstructor(PromptConstructor):
         self,
         trajectory: Trajectory,
         intent: str,
-        meta_data: dict[str, Any] = {},
+        meta_data: dict[str, Any] = None,
     ) -> APIInput:
         """Construct prompt given the trajectory"""
         intro = self.instruction["intro"]
@@ -168,6 +174,8 @@ class DirectPromptConstructor(PromptConstructor):
         template = self.instruction["template"]
         keywords = self.instruction["meta_data"]["keywords"]
         state_info: StateInfo = trajectory[-1]  # type: ignore[assignment]
+        if meta_data is None:
+            meta_data = {}
 
         obs = state_info["observation"][self.obs_modality]
         max_obs_length = self.lm_config.gen_config["max_obs_length"]
@@ -187,7 +195,7 @@ class DirectPromptConstructor(PromptConstructor):
         )
 
         # make sure all keywords are replaced
-        assert all([f"{{k}}" not in current for k in keywords])
+        assert all(["{k}" not in current for k in keywords])
         prompt = self.get_lm_api_input(intro, examples, current)
         return prompt
 
@@ -198,9 +206,7 @@ class DirectPromptConstructor(PromptConstructor):
         if match:
             return match.group(1).strip()
         else:
-            raise ActionParsingError(
-                f"Cannot parse action from response {response}"
-            )
+            raise ActionParsingError(f"Cannot parse action from response {response}")
 
 
 class CoTPromptConstructor(PromptConstructor):
@@ -219,8 +225,10 @@ class CoTPromptConstructor(PromptConstructor):
         self,
         trajectory: Trajectory,
         intent: str,
-        meta_data: dict[str, Any] = {},
+        meta_data: dict[str, Any] = None,
     ) -> APIInput:
+        if meta_data is None:
+            meta_data = {}
         intro = self.instruction["intro"]
         examples = self.instruction["examples"]
         template = self.instruction["template"]
@@ -242,7 +250,7 @@ class CoTPromptConstructor(PromptConstructor):
             previous_action=previous_action_str,
         )
 
-        assert all([f"{{k}}" not in current for k in keywords])
+        assert all(["{k}" not in current for k in keywords])
 
         prompt = self.get_lm_api_input(intro, examples, current)
         return prompt
@@ -255,6 +263,4 @@ class CoTPromptConstructor(PromptConstructor):
         if match:
             return match.group(1).strip()
         else:
-            raise ActionParsingError(
-                f'Cannot find the answer phrase "{self.answer_phrase}" in "{response}"'
-            )
+            raise ActionParsingError(f'Cannot find the answer phrase "{self.answer_phrase}" in "{response}"')

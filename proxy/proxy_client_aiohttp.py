@@ -25,8 +25,7 @@ logger = logging.getLogger("proxy-client-httpx")
 # Target host rewrite configuration
 # Maps original host:port to new host:port
 TARGET_HOST_REWRITES = {
-    "test.com:80": "10.58.210.239:80",
-    "test.com": "10.58.210.239:80",  # Also handle without explicit port
+    "metis.lti.cs.cmu.edu:7770": "10.58.210.60:80",
     # "test.com": "127.0.0.1:1234",
     # Add more rewrites as needed:
     # "api.example.com:443": "192.168.1.100:443",
@@ -46,7 +45,6 @@ class AWSAuth:
         self.credentials = None
         try:
             from botocore.auth import SigV4Auth
-            from botocore.awsrequest import AWSRequest
             from botocore.credentials import get_credentials
             from botocore.session import get_session
 
@@ -175,7 +173,7 @@ class HTTPXProxyClient:
                 if "client has been closed" in error_msg or "client is closed" in error_msg:
                     return False
                 # Retry on network errors, timeouts, connection errors
-                return isinstance(exception, (httpx.RequestError, httpx.TimeoutException, httpx.ConnectError))
+                return isinstance(exception, (httpx.RequestError | httpx.TimeoutException | httpx.ConnectError))
             if response:
                 # Retry on 5xx server errors, 429 rate limiting, 502/503/504 gateway errors
                 return response.status_code in (429, 500, 502, 503, 504)
@@ -383,7 +381,7 @@ class HTTPXProxyClient:
             connection_id = await self._create_connection(target_host, method, path, updated_headers, len(body) if body else 0)
         except Exception as exc:
             logger.error(f"Failed to create connection: {exc}")
-            raise Exception(f"Connection creation failed: {exc}")
+            raise Exception(f"Connection creation failed: {exc}") from exc
 
         try:
             # Send request body in chunks (always use chunking for consistency)
@@ -412,7 +410,7 @@ class HTTPXProxyClient:
             logger.info(f"Sent {chunk_count} chunks total")
         except Exception as exc:
             logger.error(f"Failed to send request chunks: {exc}")
-            raise Exception(f"Request transmission failed: {exc}")
+            raise Exception(f"Request transmission failed: {exc}") from exc
 
         try:
             # Get response metadata first

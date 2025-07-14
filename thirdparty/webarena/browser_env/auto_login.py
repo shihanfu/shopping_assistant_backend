@@ -1,4 +1,5 @@
 """Script to automatically login each website"""
+
 import argparse
 import glob
 import os
@@ -9,19 +10,13 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-from browser_env.env_config import (
-    ACCOUNTS,
-    GITLAB,
-    REDDIT,
-    SHOPPING,
-    SHOPPING_ADMIN,
-)
+from browser_env.env_config import ACCOUNTS, GITLAB, REDDIT, SHOPPING, SHOPPING_ADMIN
 
-HEADLESS = True
+HEADLESS = False
 SLOW_MO = 0
 
 
-SITES = ["gitlab", "shopping", "shopping_admin", "reddit"]
+SITES = ["shopping"]
 URLS = [
     f"{GITLAB}/-/profile",
     f"{SHOPPING}/wishlist/",
@@ -32,9 +27,7 @@ EXACT_MATCH = [True, True, True, True]
 KEYWORDS = ["", "", "Dashboard", "Delete"]
 
 
-def is_expired(
-    storage_state: Path, url: str, keyword: str, url_exact: bool = True
-) -> bool:
+def is_expired(storage_state: Path, url: str, keyword: str, url_exact: bool = True) -> bool:
     """Test whether the cookie is expired"""
     if not storage_state.exists():
         return True
@@ -61,7 +54,10 @@ def is_expired(
 def renew_comb(comb: list[str], auth_folder: str = "./.auth") -> None:
     context_manager = sync_playwright()
     playwright = context_manager.__enter__()
-    browser = playwright.chromium.launch(headless=HEADLESS)
+    browser = playwright.chromium.launch(
+        headless=HEADLESS,
+        proxy={"server": "http://localhost:8080"},
+    )
     context = browser.new_context()
     page = context.new_page()
 
@@ -116,13 +112,9 @@ def main(auth_folder: str = "./.auth") -> None:
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for pair in pairs:
             # TODO[shuyanzh] auth don't work on these two sites
-            if "reddit" in pair and (
-                "shopping" in pair or "shopping_admin" in pair
-            ):
+            if "reddit" in pair and ("shopping" in pair or "shopping_admin" in pair):
                 continue
-            executor.submit(
-                renew_comb, list(sorted(pair)), auth_folder=auth_folder
-            )
+            executor.submit(renew_comb, list(sorted(pair)), auth_folder=auth_folder)
 
         for site in SITES:
             executor.submit(renew_comb, [site], auth_folder=auth_folder)
@@ -136,9 +128,7 @@ def main(auth_folder: str = "./.auth") -> None:
                 url = URLS[SITES.index(cur_site)]
                 keyword = KEYWORDS[SITES.index(cur_site)]
                 match = EXACT_MATCH[SITES.index(cur_site)]
-                future = executor.submit(
-                    is_expired, Path(c_file), url, keyword, match
-                )
+                future = executor.submit(is_expired, Path(c_file), url, keyword, match)
                 futures.append(future)
 
     for i, future in enumerate(futures):

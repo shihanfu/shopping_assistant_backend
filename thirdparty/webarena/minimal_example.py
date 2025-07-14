@@ -4,44 +4,27 @@
 import json
 import os
 import re
-import subprocess
 import time
 
 SLEEP = 1.5
 # set the URLs of each website, we use the demo sites as an example
-os.environ[
-    "SHOPPING"
-] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7770"
-os.environ[
-    "SHOPPING_ADMIN"
-] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin"
-os.environ[
-    "REDDIT"
-] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999"
-os.environ[
-    "GITLAB"
-] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023"
-os.environ[
-    "MAP"
-] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000"
-os.environ[
-    "WIKIPEDIA"
-] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8888/wikipedia_en_all_maxi_2022-05/A/User:The_other_Kiwix_guy/Landing"
-os.environ[
-    "HOMEPAGE"
-] = "PASS"  # The home page is not currently hosted in the demo site
+os.environ["SHOPPING"] = "http://metis.lti.cs.cmu.edu:7770"
+os.environ["SHOPPING_ADMIN"] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin"
+os.environ["REDDIT"] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999"
+os.environ["GITLAB"] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023"
+os.environ["MAP"] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000"
+os.environ["WIKIPEDIA"] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8888/wikipedia_en_all_maxi_2022-05/A/User:The_other_Kiwix_guy/Landing"
+os.environ["HOMEPAGE"] = "PASS"  # The home page is not currently hosted in the demo site
 print("Done setting up URLs")
 
 # First, run `python scripts/generate_test_data.py` to generate the config files
-p = subprocess.run(
-    ["python", "scripts/generate_test_data.py"], capture_output=True
-)
+# p = subprocess.run(["python", "scripts/generate_test_data.py"], capture_output=True)
 
 # It will generate individual config file for each test example in config_files
 assert os.path.exists("config_files/0.json")
 
 # Make sure the URLs in the config files are replaced properly
-with open("config_files/0.json", "r") as f:
+with open("config_files/0.json") as f:
     config = json.load(f)
     assert os.environ["SHOPPING_ADMIN"] in config["start_url"], (
         os.environ["SHOPPING_ADMIN"],
@@ -50,23 +33,13 @@ with open("config_files/0.json", "r") as f:
 
 print("Done generating config files with the correct URLs")
 
-# run bash prepare.sh to save all account cookies, this only needs to be done once
-subprocess.run(["bash", "prepare.sh"])
-print("Done saving account cookies")
+# # run bash prepare.sh to save all account cookies, this only needs to be done once
+# subprocess.run(["bash", "prepare.sh"])
+# print("Done saving account cookies")
 
 # Init an environment
-from browser_env import (
-    Action,
-    ActionTypes,
-    ObservationMetadata,
-    ScriptBrowserEnv,
-    StateInfo,
-    Trajectory,
-    action2str,
-    create_id_based_action,
-    create_stop_action,
-)
-from evaluation_harness.evaluators import evaluator_router
+from browser_env import ScriptBrowserEnv, StateInfo, Trajectory, create_id_based_action, create_stop_action  # noqa: E402
+from evaluation_harness.evaluators import evaluator_router  # noqa: E402
 
 # Init the environment
 env = ScriptBrowserEnv(
@@ -78,7 +51,7 @@ env = ScriptBrowserEnv(
 )
 
 # example 156 as an example
-config_file = "config_files/156.json"
+config_file = "config_files/506.json"
 # maintain a trajectory
 trajectory: Trajectory = []
 
@@ -99,7 +72,7 @@ print(actree_obs)
         [95] link 'Issues'
                 [97] generic '13 assigned issues'
         [101] link 'Merge requests'
-                [104] generic '8 merge requests'"""
+                [104] generic '8 merge requests'"""  # noqa
 
 # save the state info to the trajectory
 state_info: StateInfo = {"observation": obs, "info": info}

@@ -2,27 +2,13 @@ import argparse
 import json
 from typing import Any
 
-import tiktoken
 from beartype import beartype
+from browser_env import Trajectory
+from browser_env.actions import Action, ActionParsingError, create_id_based_action, create_none_action, create_playwright_action
+from llms import call_llm, lm_config
+from llms.tokenizers import Tokenizer
 
 from agent.prompts import *
-from browser_env import Trajectory
-from browser_env.actions import (
-    Action,
-    ActionParsingError,
-    create_id_based_action,
-    create_none_action,
-    create_playwright_action,
-)
-from browser_env.utils import Observation, StateInfo
-from llms import (
-    call_llm,
-    generate_from_huggingface_completion,
-    generate_from_openai_chat_completion,
-    generate_from_openai_completion,
-    lm_config,
-)
-from llms.tokenizers import Tokenizer
 
 
 class Agent:
@@ -31,9 +17,7 @@ class Agent:
     def __init__(self, *args: Any) -> None:
         pass
 
-    def next_action(
-        self, trajectory: Trajectory, intent: str, meta_data: Any
-    ) -> Action:
+    def next_action(self, trajectory: Trajectory, intent: str, meta_data: Any) -> Action:
         """Predict the next action given the observation"""
         raise NotImplementedError
 
@@ -68,10 +52,8 @@ class TeacherForcingAgent(Agent):
                 elif self.action_set_tag == "id_accessibility_tree":
                     cur_action = create_id_based_action(a_str)
                 else:
-                    raise ValueError(
-                        f"Unknown action type {self.action_set_tag}"
-                    )
-            except ActionParsingError as e:
+                    raise ValueError(f"Unknown action type {self.action_set_tag}")
+            except ActionParsingError:
                 cur_action = create_none_action()
 
             cur_action["raw_prediction"] = a_str
@@ -79,9 +61,7 @@ class TeacherForcingAgent(Agent):
 
         self.actions: list[Action] = actions
 
-    def next_action(
-        self, trajectory: Trajectory, intent: str, meta_data: Any
-    ) -> Action:
+    def next_action(self, trajectory: Trajectory, intent: str, meta_data: Any) -> Action:
         """Predict the next action given the observation"""
         return self.actions.pop(0)
 
@@ -116,36 +96,27 @@ class PromptAgent(Agent):
         self.action_set_tag = tag
 
     @beartype
-    def next_action(
-        self, trajectory: Trajectory, intent: str, meta_data: dict[str, Any]
-    ) -> Action:
-        prompt = self.prompt_constructor.construct(
-            trajectory, intent, meta_data
-        )
+    def next_action(self, trajectory: Trajectory, intent: str, meta_data: dict[str, Any]) -> Action:
+        prompt = self.prompt_constructor.construct(trajectory, intent, meta_data)
         lm_config = self.lm_config
         n = 0
         while True:
             response = call_llm(lm_config, prompt)
-            force_prefix = self.prompt_constructor.instruction[
-                "meta_data"
-            ].get("force_prefix", "")
+            print(f"response: {response}")
+            force_prefix = self.prompt_constructor.instruction["meta_data"].get("force_prefix", "")
             response = f"{force_prefix}{response}"
             n += 1
             try:
-                parsed_response = self.prompt_constructor.extract_action(
-                    response
-                )
+                parsed_response = self.prompt_constructor.extract_action(response)
                 if self.action_set_tag == "id_accessibility_tree":
                     action = create_id_based_action(parsed_response)
                 elif self.action_set_tag == "playwright":
                     action = create_playwright_action(parsed_response)
                 else:
-                    raise ValueError(
-                        f"Unknown action type {self.action_set_tag}"
-                    )
+                    raise ValueError(f"Unknown action type {self.action_set_tag}")
                 action["raw_prediction"] = response
                 break
-            except ActionParsingError as e:
+            except ActionParsingError:
                 if n >= lm_config.gen_config["max_retry"]:
                     action = create_none_action()
                     action["raw_prediction"] = response
@@ -167,16 +138,12 @@ def construct_agent(args: argparse.Namespace) -> Agent:
         with open(args.instruction_path) as f:
             constructor_type = json.load(f)["meta_data"]["prompt_constructor"]
         tokenizer = Tokenizer(args.provider, args.model)
-        prompt_constructor = eval(constructor_type)(
-            args.instruction_path, lm_config=llm_config, tokenizer=tokenizer
-        )
+        prompt_constructor = eval(constructor_type)(args.instruction_path, lm_config=llm_config, tokenizer=tokenizer)
         agent = PromptAgent(
             action_set_tag=args.action_set_tag,
             lm_config=llm_config,
             prompt_constructor=prompt_constructor,
         )
     else:
-        raise NotImplementedError(
-            f"agent type {args.agent_type} not implemented"
-        )
+        raise NotImplementedError(f"agent type {args.agent_type} not implemented")
     return agent

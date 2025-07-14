@@ -31,9 +31,7 @@ class LMConfig:
 
 
 def construct_llm_config(args: argparse.Namespace) -> LMConfig:
-    llm_config = LMConfig(
-        provider=args.provider, model=args.model, mode=args.mode
-    )
+    llm_config = LMConfig(provider=args.provider, model=args.model, mode=args.mode)
     if args.provider == "openai":
         llm_config.gen_config["temperature"] = args.temperature
         llm_config.gen_config["top_p"] = args.top_p
@@ -46,12 +44,19 @@ def construct_llm_config(args: argparse.Namespace) -> LMConfig:
         llm_config.gen_config["temperature"] = args.temperature
         llm_config.gen_config["top_p"] = args.top_p
         llm_config.gen_config["max_new_tokens"] = args.max_tokens
-        llm_config.gen_config["stop_sequences"] = (
-            [args.stop_token] if args.stop_token else None
-        )
+        llm_config.gen_config["stop_sequences"] = [args.stop_token] if args.stop_token else None
         llm_config.gen_config["max_obs_length"] = args.max_obs_length
         llm_config.gen_config["model_endpoint"] = args.model_endpoint
         llm_config.gen_config["max_retry"] = args.max_retry
+    elif args.provider == "bedrock":
+        llm_config.gen_config["temperature"] = args.temperature
+        llm_config.gen_config["top_p"] = args.top_p
+        llm_config.gen_config["context_length"] = args.context_length
+        llm_config.gen_config["max_tokens"] = args.max_tokens
+        llm_config.gen_config["stop_token"] = args.stop_token
+        llm_config.gen_config["max_obs_length"] = args.max_obs_length
+        llm_config.gen_config["max_retry"] = args.max_retry
+        llm_config.gen_config["region_name"] = getattr(args, "region_name", "us-east-1")
     else:
         raise NotImplementedError(f"provider {args.provider} not implemented")
     return llm_config

@@ -1,34 +1,16 @@
 import json
-import re
 import time
-from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
-import numpy as np
-import numpy.typing as npt
 from beartype import beartype
-from beartype.door import is_bearable
 from gymnasium import Env
-from gymnasium.spaces import Box, Text
-from playwright.sync_api import (
-    CDPSession,
-    Page,
-    Playwright,
-    ViewportSize,
-    expect,
-    sync_playwright,
-)
+from playwright.sync_api import CDPSession, Page, ViewportSize, sync_playwright
 
 from .actions import Action, execute_action, get_action_space
 from .processors import ObservationHandler, ObservationMetadata
-from .utils import (
-    AccessibilityTree,
-    DetachedPage,
-    Observation,
-    png_bytes_to_numpy,
-)
+from .utils import DetachedPage, Observation
 
 
 @dataclass
@@ -51,13 +33,9 @@ def parse_action(action: str) -> PlaywrightScript:
             assert len(splitted) >= 4
             match splitted[2:]:
                 case [name, operation]:
-                    return PlaywrightScript(
-                        "get_by_role", destination, name, operation
-                    )
+                    return PlaywrightScript("get_by_role", destination, name, operation)
                 case [name, operation, value]:
-                    return PlaywrightScript(
-                        "get_by_role", destination, name, operation, value
-                    )
+                    return PlaywrightScript("get_by_role", destination, name, operation, value)
                 case _:
                     raise ValueError("Invalid action")
         case _:
@@ -81,7 +59,7 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         slow_mo: int = 0,
         observation_type: str = "html",
         current_viewport_only: bool = False,
-        viewport_size: ViewportSize = {"width": 1280, "height": 720},
+        viewport_size: ViewportSize = None,
         save_trace_enabled: bool = False,
         sleep_after_execution: float = 0.0,
     ):
@@ -91,7 +69,7 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         self.slow_mo = slow_mo
         self.current_viewport_only = current_viewport_only
         self.reset_finished = False
-        self.viewport_size = viewport_size
+        self.viewport_size = viewport_size or {"width": 1280, "height": 720}
         self.save_trace_enabled = save_trace_enabled
         self.sleep_after_execution = sleep_after_execution
 
@@ -105,9 +83,7 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
                 self.text_observation_type = ""  # type: ignore[assignment]
                 self.main_observation_type = "image"
             case _:
-                raise ValueError(
-                    f"Unsupported observation type: {observation_type}"
-                )
+                raise ValueError(f"Unsupported observation type: {observation_type}")
 
         self.observation_handler = ObservationHandler(
             self.main_observation_type,
@@ -117,20 +93,20 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
             self.viewport_size,
         )
 
-        self.observation_space = (
-            self.observation_handler.get_observation_space()
-        )
+        self.observation_space = self.observation_handler.get_observation_space()
 
     @beartype
     def setup(self, config_file: Path | None = None) -> None:
         self.context_manager = sync_playwright()
         self.playwright = self.context_manager.__enter__()
         self.browser = self.playwright.chromium.launch(
-            headless=self.headless, slow_mo=self.slow_mo
+            headless=self.headless,
+            slow_mo=self.slow_mo,
+            proxy={"server": "http://localhost:8080"},
         )
 
         if config_file:
-            with open(config_file, "r") as f:
+            with open(config_file) as f:
                 instance_config = json.load(f)
         else:
             instance_config = {}
@@ -138,6 +114,9 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         storage_state = instance_config.get("storage_state", None)
         start_url = instance_config.get("start_url", None)
         geolocation = instance_config.get("geolocation", None)
+        print(f"storage_state: {storage_state}")
+        print(f"start_url: {start_url}")
+        print(f"geolocation: {geolocation}")
 
         self.context = self.browser.new_context(
             viewport=self.viewport_size,
@@ -151,9 +130,7 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
             start_urls = start_url.split(" |AND| ")
             for url in start_urls:
                 page = self.context.new_page()
-                client = page.context.new_cdp_session(
-                    page
-                )  # talk to chrome devtools
+                client = page.context.new_cdp_session(page)  # talk to chrome devtools
                 if self.text_observation_type == "accessibility_tree":
                     client.send("Accessibility.enable")
                 page.client = client  # type: ignore # TODO[shuyanzh], fix this hackey client
@@ -172,9 +149,7 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         return page.client  # type: ignore
 
     def _get_obs(self) -> dict[str, Observation]:
-        obs = self.observation_handler.get_observation(
-            self.page, self.get_page_client(self.page)
-        )
+        obs = self.observation_handler.get_observation(self.page, self.get_page_client(self.page))
         return obs
 
     def _get_obs_metadata(self) -> dict[str, ObservationMetadata]:
@@ -228,9 +203,7 @@ class ScriptBrowserEnv(Env[dict[str, Observation], Action]):
         if self.reset_finished:
             self.context_manager.__exit__()
 
-    def step(
-        self, action: Action
-    ) -> tuple[dict[str, Observation], float, bool, bool, dict[str, Any]]:
+    def step(self, action: Action) -> tuple[dict[str, Observation], float, bool, bool, dict[str, Any]]:
         if not self.reset_finished:
             raise RuntimeError("Call reset first before calling step.")
 
