@@ -126,3 +126,11 @@ log
 outputs
 .history
 .buildx-cache/
+
+# Browser cache and session directories
+browser_cache/
+browser_session/
+repl_session_*/
+
+# REPL history
+.repl_history

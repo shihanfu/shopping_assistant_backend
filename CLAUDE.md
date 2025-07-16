@@ -169,3 +169,6 @@ observation = await env.observation()
 - Shared Playwright instance across multiple environments
 - Image blocking enabled by default to speed up page loads
 - Browser args optimized for automation (disable extensions, autofill, etc.)
+
+## IDE Integration Test
+This is a test message added to verify IDE integration is working correctly.

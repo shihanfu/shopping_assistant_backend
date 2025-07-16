@@ -20,7 +20,7 @@ const parse = () => {
     ]);
 
     const PRESERVE_EMPTY_TAGS = new Set([
-        'input', 'select', 'textarea', 'button', 'img'
+        'input', 'select', 'textarea', 'button', 'img', 'head', 'title'
     ]);
 
     /*  All semantic IDs seen so far */
@@ -108,19 +108,14 @@ const parse = () => {
 
         // Capture computed styles that affect interactivity
         const computedStyle = window.getComputedStyle(original);
-        if (computedStyle.cursor !== 'auto') {
-            clone.setAttribute('data-computed-cursor', computedStyle.cursor);
-        }
         if (computedStyle.pointerEvents !== 'auto') {
             clone.setAttribute('data-pointer-events', computedStyle.pointerEvents);
         }
 
-        // Capture element state
-        clone.setAttribute('data-is-focused', document.activeElement === original ? 'true' : 'false');
-        clone.setAttribute('data-is-visible',
-            original.getBoundingClientRect().height > 0 &&
-            original.getBoundingClientRect().width > 0 ? 'true' : 'false'
-        );
+        // Capture element state (only when focused)
+        if (document.activeElement === original) {
+            clone.setAttribute('data-is-focused', 'true');
+        }
 
         /* ---------- clickability detection -------------------------------- */
         const probablyClickable = (() => {
@@ -159,11 +154,15 @@ const parse = () => {
         if (tag === 'input' || tag === 'textarea' || original.hasAttribute('contenteditable')) {
             const t = original.getAttribute('type') || 'text';
             const isDisabled = original.disabled || original.readOnly;
-            const base = slug((original.value || '').trim() ||
-                           original.getAttribute('placeholder') ||
-                           original.getAttribute('name') ||
-                           tag);
-            thisName = uniqueName(parentName ? `${parentName}.${base}` : base);
+
+            // Only assign new semantic ID if not already set by clickable processing
+            if (!thisName) {
+                const base = slug((original.getAttribute('placeholder') ||
+                               original.getAttribute('name') ||
+                               original.value || '').trim() ||
+                               tag);
+                thisName = uniqueName(parentName ? `${parentName}.${base}` : base);
+            }
 
             // Capture all input states
             clone.setAttribute('data-semantic-id', thisName);
@@ -171,9 +170,6 @@ const parse = () => {
             clone.setAttribute('data-input-disabled', isDisabled ? 'true' : 'false');
             clone.setAttribute('data-can-edit', !isDisabled && !original.readOnly ? 'true' : 'false');
 
-            if (original.form) {
-                clone.setAttribute('data-form-id', original.form.id || 'unnamed_form');
-            }
 
             if (t === 'number') {
                 clone.setAttribute('data-numeric-value', original.valueAsNumber || '');
@@ -213,13 +209,6 @@ const parse = () => {
             }
         }
 
-        // Handle form elements
-        if (tag === 'form') {
-            clone.setAttribute('data-form-id', original.id || 'unnamed_form');
-            clone.setAttribute('data-is-submittable',
-                !original.checkValidity || original.checkValidity() ? 'true' : 'false'
-            );
-        }
 
         /* ---------- recurse ---------------------------------------------- */
         for (const child of original.children) {
@@ -253,24 +242,23 @@ const parse = () => {
         return clone;
     }
 
-    const result = automaticStripElement(document.body);
+    const result = automaticStripElement(document.documentElement);
     return {
-        html: result.innerHTML,
+        html: result.outerHTML,
         clickable_elements: Array.from(result.querySelectorAll('[data-clickable="true"]'))
             .map(el => el.getAttribute('data-semantic-id')),
         hoverable_elements: Array.from(result.querySelectorAll('[data-maybe-hoverable="true"]'))
             .map(el => el.getAttribute('data-semantic-id')),
-        input_elements: Array.from(document.querySelectorAll('input, textarea, [contenteditable]'))
+        input_elements: Array.from(result.querySelectorAll('input[data-semantic-id], textarea[data-semantic-id], [contenteditable][data-semantic-id]'))
             .map(el => ({
                 id: el.getAttribute('data-semantic-id'),
                 disabled: el.hasAttribute('data-input-disabled'),
                 type: el.getAttribute('type') || (el.tagName.toLowerCase() === 'textarea' ? 'textarea' : 'contenteditable'),
                 value: el.value || el.textContent,
-                formId: el.getAttribute('data-form-id'),
                 canEdit: el.getAttribute('data-can-edit') === 'true',
                 isFocused: el.getAttribute('data-is-focused') === 'true'
             })),
-        select_elements: Array.from(document.querySelectorAll('select'))
+        select_elements: Array.from(result.querySelectorAll('select[data-semantic-id]'))
             .map(el => ({
                 id: el.getAttribute('data-semantic-id'),
                 value: el.value,
@@ -278,11 +266,6 @@ const parse = () => {
                 multiple: el.multiple,
                 selectedValues: Array.from(el.selectedOptions).map(opt => opt.value)
             })),
-        forms: Array.from(document.querySelectorAll('form'))
-            .map(el => ({
-                id: el.getAttribute('data-form-id'),
-                isSubmittable: el.getAttribute('data-is-submittable') === 'true'
-            }))
     };
 }
 

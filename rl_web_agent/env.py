@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from omegaconf import DictConfig, OmegaConf
-from playwright.async_api import Page, Playwright, Request, Route, async_playwright
+from playwright.async_api import Playwright, Request, Route, async_playwright
 
 
 class WebAgentEnv:
@@ -17,7 +17,7 @@ class WebAgentEnv:
         self.browser = None
         self.context = None
         self.page = None  # Current active page
-        self.pages: list[Page] = []  # All open pages
+        # Note: pages are managed by self.context.pages
         self.uuid = getattr(environment_config, "uuid", str(uuid.uuid4()))
         self.logger = logging.getLogger(__name__)
         self.task_config: dict | None = None
@@ -42,7 +42,7 @@ class WebAgentEnv:
     async def _get_tabs_info(self) -> list[dict]:
         """Get information about all open tabs"""
         tabs_info = []
-        for i, page in enumerate(self.pages):
+        for i, page in enumerate(self.context.pages):
             tabs_info.append({"id": i, "title": await page.title(), "url": page.url, "is_active": page == self.page})
         return tabs_info
 
@@ -74,12 +74,13 @@ class WebAgentEnv:
         # Get launch options from config and convert to dict
         launch_options = OmegaConf.to_container(self.config.browser.launch_options, resolve=True)
 
+        # Add cache directory if configured
+        if hasattr(self.config.browser, "cache_dir") and self.config.browser.cache_dir:
+            launch_options["args"] = launch_options.get("args", []) + [f"--disk-cache-dir={self.config.browser.cache_dir}"]
+
         # Add proxy if enabled
         if self.config.proxy.enabled:
             launch_options["proxy"] = {"server": self.config.proxy.server}
-
-        # Launch browser
-        self.browser = await self.context_manager.chromium.launch(**launch_options)
 
         # Get context options from config and convert to dict
         context_options = OmegaConf.to_container(self.config.browser.context_options, resolve=True)
@@ -96,7 +97,24 @@ class WebAgentEnv:
         if extra_headers:
             context_options["extra_http_headers"] = extra_headers
 
-        self.context = await self.browser.new_context(**context_options)
+        # Check if user_data_dir is specified - use launch_persistent_context if so
+        user_data_dir = None
+        if hasattr(self.config.browser, "user_data_dir") and self.config.browser.user_data_dir:
+            user_data_dir = self.config.browser.user_data_dir
+
+        if user_data_dir:
+            # Use launch_persistent_context for user data directory
+            # Merge launch_options and context_options for persistent context
+            persistent_options = {**launch_options, **context_options}
+            self.context = await self.context_manager.chromium.launch_persistent_context(user_data_dir, **persistent_options)
+            self.browser = self.context.browser
+        else:
+            # Regular launch without persistent context
+            self.browser = await self.context_manager.chromium.launch(**launch_options)
+            self.context = await self.browser.new_context(**context_options)
+
+        # Set default timeout for all locator actions
+        self.context.set_default_timeout(self.config.browser.timeouts.locator_action)
 
         # Add init script if it exists
         init_script_path = Path(self.config.init_script_path)
@@ -106,9 +124,13 @@ class WebAgentEnv:
         else:
             self.logger.warning(f"Init script not found: {init_script_path}")
 
-        # Create initial page
-        self.page = await self.context.new_page()
-        self.pages = [self.page]
+        # Create initial page (or use existing one from persistent context)
+        if self.context.pages:
+            # Use existing page from persistent context
+            self.page = self.context.pages[0]
+        else:
+            # Create new page for regular context
+            self.page = await self.context.new_page()
 
         # Set up image blocking if enabled
         if self.config.browser.block_images:
@@ -126,36 +148,47 @@ class WebAgentEnv:
         page = await self.context.new_page()
         if url:
             await page.goto(url, wait_until="domcontentloaded")
-        self.pages.append(page)
         self.page = page  # Make new tab active
-        return len(self.pages) - 1
+        return len(self.context.pages) - 1
 
     async def switch_tab(self, tab_id: int) -> None:
         """Switch to a different tab by ID"""
-        if 0 <= tab_id < len(self.pages):
-            self.page = self.pages[tab_id]
+        if 0 <= tab_id < len(self.context.pages):
+            self.page = self.context.pages[tab_id]
+            await self.page.bring_to_front()
         else:
             raise ValueError(f"Invalid tab ID: {tab_id}")
 
     async def close_tab(self, tab_id: int) -> None:
         """Close a tab by ID"""
-        if 0 <= tab_id < len(self.pages):
-            page = self.pages[tab_id]
+        if 0 <= tab_id < len(self.context.pages):
+            page = self.context.pages[tab_id]
             await page.close()
-            self.pages.pop(tab_id)
-            # If we closed the active tab, switch to the last tab
-            if page == self.page and self.pages:
-                self.page = self.pages[-1]
+            # If we closed the active tab, switch to the currently activated tab from context
+            if page == self.page and self.context.pages:
+                # Find the currently active/focused tab in the context
+                for p in self.context.pages:
+                    try:
+                        if await p.evaluate("document.hasFocus()"):
+                            self.page = p
+                            break
+                    except Exception:
+                        continue
+                else:
+                    # Fallback to last tab if no focused tab found
+                    self.page = self.context.pages[-1]
+
+                # Ensure the new active page is brought to front
+                await self.page.bring_to_front()
         else:
             raise ValueError(f"Invalid tab ID: {tab_id}")
 
     async def reset(self):
         """Reset the environment to initial state"""
-        # Close all tabs except the first one
-        for page in self.pages:
+        # Close all tabs
+        for page in self.context.pages:
             await page.close()
         self.page = await self.context.new_page()
-        self.pages = [self.page]
 
         # Return to start URL from task config
         if self.task_config and "start_url" in self.task_config:
@@ -441,14 +474,14 @@ class WebAgentEnv:
 
         # Wait for page to be fully loaded and stable
         try:
-            await self.page.wait_for_load_state("domcontentloaded", timeout=5000)
-            await self.page.wait_for_load_state("networkidle", timeout=10000)
+            await self.page.wait_for_load_state("domcontentloaded", timeout=self.config.browser.timeouts.page_load_domcontent)
+            await self.page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
         except Exception as e:
             self.logger.warning(f"Page load wait timeout: {e}")
 
         # Additional safety check - wait for body element
         try:
-            await self.page.wait_for_selector("body", timeout=5000)
+            await self.page.wait_for_selector("body", timeout=self.config.browser.timeouts.element_wait)
         except Exception as e:
             self.logger.warning(f"Body element not found: {e}")
 

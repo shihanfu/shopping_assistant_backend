@@ -67,12 +67,22 @@ environment:
     # Custom behavior options
     block_images: true                 # Block loading of images to speed up browsing
 
+    # Browser cache and data directories
+    cache_dir: "./browser_cache"       # Persistent network cache directory
+    user_data_dir: "./browser_session" # User data directory (cookies, session data)
+
+    # Timeout configurations (in milliseconds)
+    timeouts:
+      locator_action: 5000        # Timeout for locator actions (click, type, etc.)
+      page_load_domcontent: 10000 # Timeout for DOM content loaded
+      page_load_networkidle: 30000 # Timeout for network idle (longer for full page loads)
+      element_wait: 5000          # Timeout for waiting for specific elements
+
 # ============================================================================
 # GENERAL SETTINGS
 # ============================================================================
 debug: false           # Enable debug logging and detailed output
 log_level: INFO        # Logging level: DEBUG, INFO, WARNING, ERROR
-timeout: 30000         # Operation timeout in milliseconds
 
 # ============================================================================
 # HYDRA SETTINGS

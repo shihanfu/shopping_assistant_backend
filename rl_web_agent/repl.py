@@ -8,9 +8,13 @@ import asyncio
 import json
 import logging
 import re
+import readline
+import shutil
+import sys
+import tempfile
+from pathlib import Path
 
 import hydra
-from aioconsole import ainput
 from omegaconf import DictConfig
 
 from rl_web_agent.env import WebAgentEnv
@@ -145,6 +149,34 @@ class WebAgentREPL:
         self.env = None
         self.parser = ActionParser()
         self.logger = logging.getLogger(__name__)
+        self.temp_user_data_dir = None
+        self._setup_readline()
+
+    def _setup_readline(self):
+        """Configure readline for arrow keys and history"""
+        try:
+            # Enable arrow keys and command history
+            readline.parse_and_bind("tab: complete")
+            readline.parse_and_bind('"\\e[A": history-search-backward')
+            readline.parse_and_bind('"\\e[B": history-search-forward')
+            readline.parse_and_bind('"\\e[C": forward-char')
+            readline.parse_and_bind('"\\e[D": backward-char')
+
+            # Set history size
+            readline.set_history_length(1000)
+
+            # Try to load history file
+            try:
+                readline.read_history_file(".repl_history")
+            except FileNotFoundError:
+                pass  # No history file yet
+        except Exception as e:
+            self.logger.debug(f"Readline setup failed: {e}")
+
+    async def _async_input(self, prompt: str) -> str:
+        """Async wrapper for input() with readline support"""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, input, prompt)
 
     async def start(self):
         """Start the REPL session"""
@@ -172,10 +204,13 @@ class WebAgentREPL:
         print("✅ Environment ready!")
         print("")
 
+        # Show initial observation
+        await self._show_observation()
+
         # Main REPL loop
         while True:
             try:
-                command = await ainput("🌐 > ")
+                command = await self._async_input("🌐 > ")
                 command = command.strip()
 
                 if not command:
@@ -202,8 +237,29 @@ class WebAgentREPL:
         if self.env:
             await self.env.close()
 
+        # Clean up temporary user data directory
+        if self.temp_user_data_dir and Path(self.temp_user_data_dir).exists():
+            try:
+                shutil.rmtree(self.temp_user_data_dir)
+                self.logger.debug(f"Cleaned up temp user data dir: {self.temp_user_data_dir}")
+            except Exception as e:
+                self.logger.debug(f"Failed to cleanup temp dir: {e}")
+
+        # Save command history
+        try:
+            readline.write_history_file(".repl_history")
+        except Exception as e:
+            self.logger.debug(f"Failed to save history: {e}")
+
     async def _setup_env(self):
         """Initialize the web agent environment"""
+        # Create temporary directory for user data (fresh session each time)
+        self.temp_user_data_dir = tempfile.mkdtemp(prefix="repl_session_")
+
+        # Override the user_data_dir in config for REPL sessions
+        # Keep cache_dir as configured for persistence
+        self.cfg.environment.browser.user_data_dir = self.temp_user_data_dir
+
         self.env = WebAgentEnv(self.cfg.environment)
 
         # Use fake task config from main.py
@@ -216,6 +272,9 @@ class WebAgentREPL:
         print("🔄 Resetting environment...")
         await self.env.reset()
         print("✅ Environment reset!")
+        print("")
+        # Auto-observe after reset
+        await self._show_observation()
 
     async def _show_help(self):
         """Show help information"""
@@ -255,31 +314,87 @@ Special Commands:
         """
         )
 
+    def _safe_print(self, text: str):
+        """Print with error handling for blocking I/O"""
+        try:
+            print(text)
+            sys.stdout.flush()
+        except BlockingIOError:
+            # If output is blocked, try writing smaller chunks
+            try:
+                for chunk in [text[i : i + 100] for i in range(0, len(text), 100)]:
+                    print(chunk, end="")
+                    sys.stdout.flush()
+                print()  # Final newline
+            except Exception:
+                # Last resort - just skip this output
+                print("⚠️  Output truncated due to I/O blocking")
+
     async def _show_observation(self):
         """Display current observation with detailed formatting"""
         try:
             obs = await self.env.observation()
-            print("\n" + "=" * 80)
-            print("📊 FULL OBSERVATION")
-            print("=" * 80)
+            self._safe_print("\n" + "=" * 80)
+            self._safe_print("📊 FULL OBSERVATION")
+            self._safe_print("=" * 80)
 
             # Basic page info
-            print(f"🔗 URL: {self.env.page.url}")
-            print(f"📑 Title: {await self.env.page.title()}")
-            print("")
+            self._safe_print(f"🔗 URL: {self.env.page.url}")
+            self._safe_print(f"📑 Title: {await self.env.page.title()}")
+            self._safe_print("")
+
+            # HTML - Show full HTML first
+            if obs.get("html"):
+                self._safe_print("🌐 FULL HTML")
+                self._safe_print("-" * 40)
+                try:
+                    # Simple HTML pretty printing with regex-based indentation
+                    html = obs["html"]
+                    # Add newlines after > and before <
+                    html = re.sub(r">([^<\s])", r">\n\1", html)
+                    html = re.sub(r"([^>\s])<", r"\1\n<", html)
+                    html = re.sub(r"><", r">\n<", html)
+
+                    # Split into lines and add indentation
+                    lines = html.split("\n")
+                    indented_lines = []
+                    indent_level = 0
+
+                    for line in lines:
+                        line = line.strip()
+                        if not line:
+                            continue
+
+                        # Decrease indent for closing tags
+                        if line.startswith("</"):
+                            indent_level = max(0, indent_level - 1)
+
+                        # Add indented line
+                        indented_lines.append("  " * indent_level + line)
+
+                        # Increase indent for opening tags (but not self-closing or closing tags)
+                        if line.startswith("<") and not line.startswith("</") and not line.endswith("/>") and not any(tag in line for tag in ["<br>", "<img", "<input", "<meta", "<link"]):
+                            indent_level += 1
+
+                    self._safe_print("\n".join(indented_lines))
+                except Exception as e:
+                    # Fallback to raw HTML if pretty printing fails
+                    self._safe_print(f"<!-- Pretty print failed: {e} -->")
+                    self._safe_print(obs["html"])
+                self._safe_print("")
 
             # Clickable elements
             if obs.get("clickable_elements"):
-                print(f"🖱️  CLICKABLE ELEMENTS ({len(obs['clickable_elements'])})")
-                print("-" * 40)
+                self._safe_print(f"🖱️  CLICKABLE ELEMENTS ({len(obs['clickable_elements'])})")
+                self._safe_print("-" * 40)
                 for i, elem_id in enumerate(obs["clickable_elements"], 1):
-                    print(f"  {i:2d}. {elem_id}")
-                print("")
+                    self._safe_print(f"  {i:2d}. {elem_id}")
+                self._safe_print("")
 
             # Input elements with detailed info
             if obs.get("input_elements"):
-                print(f"⌨️  INPUT ELEMENTS ({len(obs['input_elements'])})")
-                print("-" * 40)
+                self._safe_print(f"⌨️  INPUT ELEMENTS ({len(obs['input_elements'])})")
+                self._safe_print("-" * 40)
                 for i, inp in enumerate(obs["input_elements"], 1):
                     elem_id = inp.get("id", "unnamed")
                     elem_type = inp.get("type", "text")
@@ -294,67 +409,32 @@ Special Commands:
                         status_icons.append("🔒")
 
                     status = " ".join(status_icons)
-                    print(f"  {i:2d}. {elem_id} [{elem_type}] {status}")
+                    self._safe_print(f"  {i:2d}. {elem_id} [{elem_type}] {status}")
                     if value:
-                        print(f"      Value: '{value[:50]}{'...' if len(value) > 50 else ''}'")
-                print("")
-
-            # Select elements
-            if obs.get("select_elements"):
-                print(f"📋 SELECT ELEMENTS ({len(obs['select_elements'])})")
-                print("-" * 40)
-                for i, sel in enumerate(obs["select_elements"], 1):
-                    elem_id = sel.get("id", "unnamed")
-                    value = sel.get("value", "")
-                    multiple = sel.get("multiple", False)
-                    selected_values = sel.get("selectedValues", [])
-
-                    mult_indicator = " [MULTIPLE]" if multiple else ""
-                    print(f"  {i:2d}. {elem_id}{mult_indicator}")
-                    if multiple and selected_values:
-                        print(f"      Selected: {', '.join(selected_values)}")
-                    elif value:
-                        print(f"      Selected: '{value}'")
-                print("")
-
-            # Forms
-            if obs.get("forms"):
-                print(f"📝 FORMS ({len(obs['forms'])})")
-                print("-" * 40)
-                for i, form in enumerate(obs["forms"], 1):
-                    form_id = form.get("id", "unnamed")
-                    submittable = form.get("isSubmittable", False)
-                    status = "✅ Ready" if submittable else "❌ Invalid"
-                    print(f"  {i:2d}. {form_id} - {status}")
-                print("")
+                        # Truncate long values to prevent blocking
+                        safe_value = value[:30] + ("..." if len(value) > 30 else "")
+                        self._safe_print(f"      Value: '{safe_value}'")
+                self._safe_print("")
 
             # Tabs
             if obs.get("tabs"):
-                print(f"🗂️  TABS ({len(obs['tabs'])})")
-                print("-" * 40)
+                self._safe_print(f"🗂️  TABS ({len(obs['tabs'])})")
+                self._safe_print("-" * 40)
                 for tab in obs["tabs"]:
                     active = "🟢 ACTIVE" if tab.get("is_active") else "⚪ inactive"
                     tab_title = tab.get("title", "Untitled")[:40]
-                    print(f"  {tab.get('id'):2d}. {active} - {tab_title}")
-                print("")
+                    self._safe_print(f"  {tab.get('id'):2d}. {active} - {tab_title}")
+                self._safe_print("")
 
-            # HTML preview (first 500 chars of processed HTML)
-            if obs.get("html"):
-                html_preview = obs["html"][:500]
-                print("🌐 HTML PREVIEW")
-                print("-" * 40)
-                # Simple formatting to make it more readable
-                html_preview = html_preview.replace("<", "\n  <").replace(">", ">\n  ")
-                print(f"{html_preview[:300]}...")
-                print(f"\n  [Total HTML length: {len(obs['html'])} characters]")
-
-            print("=" * 80)
+            self._safe_print("=" * 80)
 
         except Exception as e:
-            print(f"❌ Error getting observation: {e}")
+            self._safe_print(f"❌ Error getting observation: {e}")
             import traceback
 
-            print(f"Full error: {traceback.format_exc()}")
+            # Truncate traceback to prevent blocking
+            tb_lines = traceback.format_exc().split("\n")[:10]
+            self._safe_print(f"Error details: {' '.join(tb_lines)}")
 
     async def _execute_action(self, command: str):
         """Execute a user action"""
@@ -377,15 +457,8 @@ Special Commands:
             else:
                 print("✅ Action completed successfully!")
 
-                # Show brief status update
-                print(f"📍 Current URL: {self.env.page.url}")
-
-                # If there was a tab operation, show tab info
-                if "tab_id" in str(action_json):
-                    tabs = result.get("tabs", [])
-                    active_tab = next((t for t in tabs if t.get("is_active")), None)
-                    if active_tab:
-                        print(f"📋 Active tab: {active_tab.get('title', 'Untitled')}")
+            # Auto-observe after every action
+            await self._show_observation()
 
         except Exception as e:
             print(f"❌ Error executing action: {e}")
