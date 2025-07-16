@@ -68,8 +68,8 @@ version = "2.7.4.post1"
 apex = {git = "https://github.com/NVIDIA/apex.git"}
 megatron-core = {git = "https://github.com/NVIDIA/Megatron-LM.git", rev = "core_v0.12.0"}
 transformer-engine = {git = "https://github.com/NVIDIA/TransformerEngine.git", rev = "v2.3"}
-verl = {path = "thirdparty/verl"}
-webarena = {path = "thirdparty/webarena"}
+verl = {path = "thirdparty/verl", editable = true}
+webarena = { path = "thirdparty/webarena", editable = true }
 
 [project.optional-dependencies]
 compile = ["flash-attn>=2.7.4.post1", "apex", "transformer-engine"]

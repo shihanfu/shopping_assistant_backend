@@ -4998,7 +4998,7 @@ requires-dist = [
     { name = "types-tqdm", marker = "extra == 'webarena'", specifier = ">=4.67.0.20250516" },
     { name = "vllm", marker = "extra == 'vllm'", specifier = "==0.8.2" },
     { name = "wandb", specifier = ">=0.20.1" },
-    { name = "webarena", marker = "extra == 'webarena'", directory = "thirdparty/webarena" },
+    { name = "webarena", marker = "extra == 'webarena'", editable = "thirdparty/webarena" },
 ]
 provides-extras = ["compile", "sglang", "vllm", "webarena"]
 
@@ -5017,7 +5017,7 @@ gpu = [
     { name = "torchdata", specifier = ">=0.11.0" },
     { name = "torchvision", specifier = ">=0.21.0" },
     { name = "transformers", specifier = ">=4.51.1" },
-    { name = "verl", directory = "thirdparty/verl" },
+    { name = "verl", editable = "thirdparty/verl" },
 ]
 
 [[package]]
@@ -6146,7 +6146,7 @@ wheels = [
 [[package]]
 name = "verl"
 version = "0.1.0"
-source = { directory = "thirdparty/verl" }
+source = { editable = "thirdparty/verl" }
 
 [[package]]
 name = "virtualenv"
@@ -6366,7 +6366,7 @@ wheels = [
 [[package]]
 name = "webarena"
 version = "0.0.0"
-source = { directory = "thirdparty/webarena" }
+source = { editable = "thirdparty/webarena" }
 
 [package.metadata]
 requires-dist = [
