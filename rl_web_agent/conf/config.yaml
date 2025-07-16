@@ -1,0 +1,61 @@
+# Main configuration for RL Web Agent
+# @package _global_
+#
+# Single configuration file with all settings.
+# Override any setting from the command line:
+#   python -m rl_web_agent.main browser.headless=true proxy.enabled=false
+
+# ============================================================================
+# PROXY CONFIGURATION
+# ============================================================================
+# Proxy setup allows:
+# - Network request interception and modification
+# - Host rewriting for internal/external address mapping
+# - Request/response logging and debugging
+# - Traffic routing through custom proxy server
+proxy:
+  server: "http://localhost:8080"    # Proxy server URL (must be running)
+  enabled: true                      # Enable proxy routing (set false to bypass)
+
+# ============================================================================
+# BROWSER CONFIGURATION
+# ============================================================================
+# Browser settings for GUI mode with standard viewport
+# Settings:
+# - headless: false (show browser window)
+# - browser_type: chromium (fastest, most compatible)
+# - viewport: 1920x1080 (standard desktop resolution)
+# - extra_http_headers: includes host rewrite for proxy routing
+browser:
+  headless: false                    # Show browser window (set true for CI/automation)
+  browser_type: "chromium"           # Browser engine: chromium, firefox, or webkit
+  viewport_width: 1920               # Browser viewport width in pixels
+  viewport_height: 1080              # Browser viewport height in pixels
+  user_agent: null                   # Use default user agent (set string to override)
+  # HTTP headers sent with all requests
+  extra_http_headers:
+
+# ============================================================================
+# ENVIRONMENT CONFIGURATION
+# ============================================================================
+# Web environment and script paths
+environment:
+  init_script_path: "rl_web_agent/javascript/initscript.js"   # Path to JavaScript init script
+  parser_script_path: "rl_web_agent/javascript/parser.js"     # Path to JavaScript parser script
+
+# ============================================================================
+# GENERAL SETTINGS
+# ============================================================================
+debug: false           # Enable debug logging and detailed output
+log_level: INFO        # Logging level: DEBUG, INFO, WARNING, ERROR
+timeout: 30000         # Operation timeout in milliseconds
+
+# ============================================================================
+# HYDRA SETTINGS
+# ============================================================================
+# Controls output directory and job behavior
+hydra:
+  run:
+    dir: ./outputs/${now:%Y-%m-%d_%H-%M-%S}  # Timestamped output directory
+  job:
+    chdir: false       # Don't change working directory during execution

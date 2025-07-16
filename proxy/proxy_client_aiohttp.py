@@ -25,7 +25,7 @@ logger = logging.getLogger("proxy-client-httpx")
 # Target host rewrite configuration
 # Maps original host:port to new host:port
 TARGET_HOST_REWRITES = {
-    "metis.lti.cs.cmu.edu:7770": "10.58.210.60:80",
+    # "metis.lti.cs.cmu.edu:7770": "10.58.210.60:80",
     # "test.com": "127.0.0.1:1234",
     # Add more rewrites as needed:
     # "api.example.com:443": "192.168.1.100:443",
@@ -126,12 +126,41 @@ class HTTPXProxyClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.stop()
 
-    def _rewrite_target_host(self, original_host: str) -> str:
-        """Rewrite target host based on configuration"""
-        # Check for exact match first
+    def _rewrite_target_host(self, original_host: str, headers: dict = None) -> str:
+        """Rewrite target host based on configuration and request headers"""
+        # Check for dynamic rewrite in request header first
+        if headers:
+            # Case-insensitive header lookup
+            rewrite_header = ""
+            for key, value in headers.items():
+                if key.lower() == "x-target-host-rewrite":
+                    rewrite_header = value.strip()
+                    break
+
+            if rewrite_header:
+                # Parse header format: "original_host=new_host" or "original_host:port=new_host:port"
+                if "=" in rewrite_header:
+                    header_original, header_rewritten = rewrite_header.split("=", 1)
+                    header_original = header_original.strip()
+                    header_rewritten = header_rewritten.strip()
+
+                    # Check if this request matches the header rewrite rule
+                    if header_original == original_host:
+                        logger.info(f"Dynamic host rewrite from header: {original_host} → {header_rewritten}")
+                        return header_rewritten
+
+                    # Also check with default ports if no port specified
+                    if ":" not in original_host:
+                        if header_original in (f"{original_host}:80", f"{original_host}:443"):
+                            logger.info(f"Dynamic host rewrite from header: {original_host} → {header_rewritten} (matched with default port)")
+                            return header_rewritten
+                else:
+                    logger.warning(f"Invalid x-target-host-rewrite header format: {rewrite_header} (expected 'original=new')")
+
+        # Check for exact match in static configuration
         if original_host in TARGET_HOST_REWRITES:
             rewritten = TARGET_HOST_REWRITES[original_host]
-            logger.info(f"Host rewrite: {original_host} → {rewritten}")
+            logger.info(f"Static host rewrite: {original_host} → {rewritten}")
             return rewritten
 
         # If no port specified, try adding default ports
@@ -140,14 +169,14 @@ class HTTPXProxyClient:
             http_key = f"{original_host}:80"
             if http_key in TARGET_HOST_REWRITES:
                 rewritten = TARGET_HOST_REWRITES[http_key]
-                logger.info(f"Host rewrite: {original_host} → {rewritten} (added default port 80)")
+                logger.info(f"Static host rewrite: {original_host} → {rewritten} (added default port 80)")
                 return rewritten
 
             # Try with default HTTPS port
             https_key = f"{original_host}:443"
             if https_key in TARGET_HOST_REWRITES:
                 rewritten = TARGET_HOST_REWRITES[https_key]
-                logger.info(f"Host rewrite: {original_host} → {rewritten} (added default port 443)")
+                logger.info(f"Static host rewrite: {original_host} → {rewritten} (added default port 443)")
                 return rewritten
 
         # No rewrite found, return original
@@ -342,7 +371,7 @@ class HTTPXProxyClient:
                 logger.debug(f"Direct request - original target_host: {original_target_host}, path: {request_path}")
 
             # Apply host rewriting
-            target_host = self._rewrite_target_host(original_target_host)
+            target_host = self._rewrite_target_host(original_target_host, dict(request.headers))
 
             # Read request body
             body = await request.get_data()
@@ -350,7 +379,7 @@ class HTTPXProxyClient:
             logger.info(f"Request body size: {body_size} bytes")
 
             # Handle request with unified chunking approach
-            response = await self._handle_request_unified(target_host, request_path, method, dict(request.headers), body, original_target_host)
+            response = await self._handle_request(target_host, request_path, method, dict(request.headers), body, original_target_host)
 
             elapsed = time.time() - request_start
             logger.info(f"=== Request completed in {elapsed:.3f}s ===")
@@ -364,7 +393,7 @@ class HTTPXProxyClient:
             error_message = f"Proxy client error: {exc}"
             return Response(response=error_message, status=502, headers={"Content-Type": "text/plain", "Connection": "close"})
 
-    async def _handle_request_unified(self, target_host: str, path: str, method: str, headers: dict, body: bytes, original_host: str = None) -> Response:
+    async def _handle_request(self, target_host: str, path: str, method: str, headers: dict, body: bytes, original_host: str = None) -> Response:
         """Handle all requests with unified chunking approach"""
         logger.info(f"Processing unified request for {target_host}{path}")
         if original_host and original_host != target_host:
@@ -376,6 +405,16 @@ class HTTPXProxyClient:
             if original_host:
                 updated_headers["Host"] = original_host
                 logger.debug(f"Preserving original Host header: {original_host}")
+
+            # Remove proxy-specific headers before forwarding (case-insensitive)
+            headers_to_remove = []
+            for key in updated_headers.keys():
+                if key.lower() == "x-target-host-rewrite":
+                    headers_to_remove.append(key)
+
+            for key in headers_to_remove:
+                updated_headers.pop(key)
+                logger.debug(f"Removed proxy-specific header: {key}")
 
             # Create connection
             connection_id = await self._create_connection(target_host, method, path, updated_headers, len(body) if body else 0)
@@ -510,11 +549,14 @@ async def main():
 
     # Show host rewrite configuration
     if TARGET_HOST_REWRITES:
-        print(f"Host Rewrites Configured: {len(TARGET_HOST_REWRITES)} rules")
+        print(f"Static Host Rewrites: {len(TARGET_HOST_REWRITES)} rules configured")
         for original, rewritten in TARGET_HOST_REWRITES.items():
             print(f"  {original} → {rewritten}")
     else:
-        print("Host Rewrites: None configured")
+        print("Static Host Rewrites: None configured")
+
+    print("Dynamic Host Rewrites: Enabled via 'x-target-host-rewrite' header")
+    print("  Header format: 'original_host=new_host' or 'original_host:port=new_host:port'")
 
     # Start the server
     await app.run_task(host="0.0.0.0", port=CLIENT_LISTEN_PORT, debug=False)

@@ -1,0 +1,149 @@
+# RL Web Agent Project Rules
+
+## Project Overview
+This is an RL (Reinforcement Learning) web agent project that uses Playwright for browser automation and Hydra for configuration management. The project enables automated web interactions through a configurable environment.
+
+## Key Technologies
+- **Playwright**: Browser automation and web scraping
+- **Hydra**: Configuration management with composable configs
+- **AsyncIO**: Asynchronous programming for browser operations
+- **Python 3.12+**: Modern Python with type hints
+
+## Project Structure
+```
+rl_web_agent/
+├── __init__.py              # Main module exports
+├── config.py                # Hydra configuration dataclasses
+├── env.py                   # WebAgentEnv class (main environment)
+├── main.py                  # Hydra-decorated entry point
+├── javascript/              # Browser scripts
+│   ├── initscript.js       # Page initialization
+│   └── parser.js           # DOM parsing logic
+└── conf/                   # Hydra configuration files
+    └── config.yaml         # Single unified config file
+```
+
+## Configuration System (Hydra)
+- **Always use Hydra decorators** for main entry points: `@hydra.main()`
+- **Single config file**: All settings in `conf/config.yaml`
+- **Override syntax**: `browser.headless=true`, `proxy.enabled=false`
+- **Config validation**: Use dataclasses with type hints in `config.py`
+
+## Coding Conventions
+
+### Python Style
+- Use **async/await** for all browser operations
+- Type hints are **mandatory** (especially `DictConfig` from OmegaConf)
+- Use **dataclasses** for configuration structures
+- Follow **PEP 8** with 4-space indentation
+- Use **pathlib.Path** instead of os.path
+- Logger setup: `logging.getLogger(__name__)`
+
+### Configuration Patterns
+```python
+# ✅ Good: Hydra main decorator
+@hydra.main(version_base=None, config_path="conf", config_name="config")
+def main(cfg: DictConfig) -> None:
+    env = WebAgentEnv(cfg)
+
+# ✅ Good: Config validation
+@dataclass
+class BrowserConfig:
+    headless: bool = False
+    browser_type: str = "chromium"
+
+# ✅ Good: Async environment usage
+async def setup_and_run():
+    await env.setup()
+    content = await env.get_page_content()
+    await env.close()
+```
+
+### Browser Automation Patterns
+```python
+# ✅ Good: Check element existence before interaction
+if "data-semantic-id=target" in content.get("html", ""):
+    await page.hover("css=[data-semantic-id=target]")
+
+# ✅ Good: Always use try/finally for cleanup
+try:
+    await env.setup()
+    # ... operations
+finally:
+    await env.close()
+
+# ✅ Good: Configure browser from config
+launch_options = {"headless": cfg.browser.headless}
+if cfg.proxy.enabled:
+    launch_options["proxy"] = {"server": cfg.proxy.server}
+```
+
+## File Creation Guidelines
+
+### When creating new configs:
+- **Only modify `conf/config.yaml`** - single config file approach
+- **Put ALL documentation in YAML comments only** - no separate docs
+- Include all required fields from dataclass
+
+### When creating new scripts:
+- Use `#!/usr/bin/env python3` shebang
+- Import config classes from `rl_web_agent.config`
+- Use Hydra's `compose()` for programmatic config loading
+- Include proper async/await patterns
+
+### When modifying environment:
+- Update `WebAgentEnv` class in `env.py`
+- Maintain backward compatibility with existing configs
+- Add new config options to `config.py` dataclasses
+
+## Common Commands
+```bash
+# Run with default config
+python -m rl_web_agent.main
+
+# Override parameters
+python -m rl_web_agent.main browser.headless=true proxy.enabled=false
+```
+
+## Dependencies Management
+- Add new deps to `requirements.txt`
+- Pin versions for stability: `package>=1.0.0`
+- Core deps: `hydra-core`, `playwright`, `omegaconf`
+
+## Error Handling
+- Always wrap browser operations in try/finally
+- Use logger for debugging: `self.logger.warning()`
+- Graceful fallbacks for missing files/elements
+- Proper async context management
+
+## AI Assistant Instructions
+When helping with this project:
+1. **Always consider Hydra configuration** - don't hardcode values
+2. **Use async/await patterns** for browser operations
+3. **Use single config file** - modify only `conf/config.yaml`
+4. **Follow the established patterns** in existing files
+
+## STRICT PROHIBITIONS
+**NEVER CREATE THE FOLLOWING:**
+- ❌ Test files (test_*.py, *_test.py, tests/)
+- ❌ Documentation files (README*.md, *.rst, docs/)
+- ❌ Example files (example_*.py, examples/)
+- ❌ Tutorial files or usage guides
+- ❌ Separate documentation for configurations
+- ❌ Component config files (browser/*.yaml, proxy/*.yaml, etc.)
+
+**DOCUMENTATION RULES:**
+- ✅ Put config documentation ONLY in YAML file comments
+- ✅ Use docstrings in Python code for function/class documentation
+- ❌ Never create separate markdown or text documentation files
+- ❌ Never create component config directories
+
+## Anti-Patterns to Avoid
+- ❌ Hardcoded URLs, timeouts, or browser settings
+- ❌ Synchronous browser operations (missing await)
+- ❌ Missing cleanup in finally blocks
+- ❌ Config changes without updating dataclasses
+- ❌ Browser operations without element existence checks
+- ❌ Missing type hints on functions that use DictConfig
+- ❌ Creating any test, documentation, or example files
+- ❌ Creating component config files or directories
