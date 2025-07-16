@@ -183,7 +183,7 @@ class WebAgentREPL:
 
         # Setup environment
         print("🔧 Setting up environment...")
-        await self._setup_env()
+        self.obs = await self._setup_env()
         print("✅ Environment ready!")
         print("")
 
@@ -204,6 +204,7 @@ class WebAgentREPL:
                 elif command.lower() == "help":
                     await self._show_help()
                 elif command.lower() == "obs":
+                    self.obs = await self.env.observation()
                     await self._show_observation()
                 elif command.lower() == "reset":
                     await self._reset_env()
@@ -246,12 +247,13 @@ class WebAgentREPL:
         # Use fake task config from main.py
         fake_task = {"sites": ["shopping"], "task_id": 1, "require_login": False, "start_url": "http://metis.lti.cs.cmu.edu:7770", "intent": "Interactive testing session"}
 
-        await self.env.setup(fake_task)
+        obs = await self.env.setup(fake_task)
+        return obs
 
     async def _reset_env(self):
         """Reset the environment"""
         print("🔄 Resetting environment...")
-        await self.env.reset()
+        self.obs = await self.env.reset()
         print("✅ Environment reset!")
         print("")
         # Auto-observe after reset
@@ -314,14 +316,25 @@ Special Commands:
     async def _show_observation(self):
         """Display current observation with detailed formatting"""
         try:
-            obs = await self.env.observation()
+            obs = self.obs
+            if obs is None:
+                self._safe_print("\n" + "=" * 80)
+                self._safe_print("📊 FULL OBSERVATION")
+                self._safe_print("=" * 80)
+                self._safe_print("❌ No observation data available")
+                return
+
             self._safe_print("\n" + "=" * 80)
             self._safe_print("📊 FULL OBSERVATION")
             self._safe_print("=" * 80)
 
-            # Basic page info
-            self._safe_print(f"🔗 URL: {self.env.page.url}")
-            self._safe_print(f"📑 Title: {await self.env.page.title()}")
+            # Basic page info (only if env.page exists)
+            if self.env and self.env.page:
+                self._safe_print(f"🔗 URL: {self.env.page.url}")
+                self._safe_print(f"📑 Title: {await self.env.page.title()}")
+            else:
+                self._safe_print("🔗 URL: Not available")
+                self._safe_print("📑 Title: Not available")
             self._safe_print("")
 
             # HTML - Show full HTML first
@@ -432,6 +445,7 @@ Special Commands:
 
             # Execute action
             result = await self.env.step(action_json)
+            self.obs = result
 
             if result.get("error"):
                 print(f"❌ Action failed: {result['error']}")

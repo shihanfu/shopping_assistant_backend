@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -116,7 +117,7 @@ class WebAgentEnv:
             self.context = await self.browser.new_context(**context_options)
 
         # Set default timeout for all locator actions
-        self.context.set_default_timeout(self.config.browser.timeouts.locator_action)
+        self.context.set_default_timeout(self.config.browser.timeouts.default)
 
         # Add init script if it exists
         init_script_path = Path(self.config.init_script_path)
@@ -139,6 +140,7 @@ class WebAgentEnv:
             await self.page.goto(self.task_config["start_url"], wait_until="domcontentloaded")
         else:
             self.logger.warning("No start_url specified in task config")
+        return await self.observation()
 
     async def new_tab(self, url: str | None = None) -> int:
         """Create a new tab and optionally navigate to URL. Returns tab ID."""
@@ -192,6 +194,7 @@ class WebAgentEnv:
             await self.page.goto(self.task_config["start_url"], wait_until="domcontentloaded")
         else:
             self.logger.warning("No start_url specified in task config")
+        return await self.observation()
 
     async def step(self, action: str):
         """
@@ -269,6 +272,11 @@ class WebAgentEnv:
             else:
                 self.logger.error(f"Unknown action: {action_name}")
                 raise ValueError(f"Unknown action: {action_name}")
+
+            # Sleep after action if configured
+            sleep_time = getattr(self.config.browser, "sleep_after_action", 0)
+            if sleep_time > 0:
+                await asyncio.sleep(sleep_time)
 
             # Return the next observation after executing the action
             observation = await self.observation()
@@ -464,6 +472,105 @@ class WebAgentEnv:
         await self.page.reload(wait_until="domcontentloaded")
         self.logger.info("Page refreshed")
 
+    async def _wait_for_custom_network_idle(self, timeout_ms: int = 10000, idle_time_ms: int = 500) -> None:
+        """
+        Custom network idle detection that works with XHR/fetch requests.
+        Uses async JavaScript Promise-based waiting for better performance.
+        """
+        self.logger.info(f"Waiting for custom network idle (timeout: {timeout_ms}ms, idle: {idle_time_ms}ms)")
+
+        try:
+            # Add Python-side timeout as a safety net
+            timeout_future = asyncio.create_task(asyncio.sleep(timeout_ms / 1000))
+            evaluate_future = asyncio.create_task(
+                self.page.evaluate(
+                    """
+                async ([idleTimeMs, timeoutMs]) => {
+                    if (typeof window.__networkActivity === 'undefined') {
+                        console.log('Network activity tracker not available');
+                        return true; // Fallback if tracker not available
+                    }
+
+                    console.log('Starting network idle wait...');
+                    try {
+                        const isIdle = await window.__networkActivity.waitForIdle(idleTimeMs, timeoutMs);
+                        console.log('Network idle wait completed:', isIdle);
+                        return isIdle;
+                    } catch (error) {
+                        console.warn('Network idle wait error:', error);
+                        return false;
+                    }
+                }
+            """,
+                    [idle_time_ms, timeout_ms],
+                )
+            )
+
+            # Race between evaluation and timeout
+            done, pending = await asyncio.wait([evaluate_future, timeout_future], return_when=asyncio.FIRST_COMPLETED)
+
+            # Cancel pending tasks
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            if evaluate_future in done:
+                result = await evaluate_future
+                if result:
+                    self.logger.info("Custom network idle detected")
+                else:
+                    self.logger.warning(f"Custom network idle timeout after {timeout_ms}ms")
+            else:
+                self.logger.warning("Custom network idle detection timed out on Python side")
+
+        except Exception as e:
+            self.logger.warning(f"Custom network idle check failed: {e}")
+            # Fallback to old polling method
+            await self._wait_for_custom_network_idle_fallback(timeout_ms, idle_time_ms)
+
+    async def _wait_for_custom_network_idle_fallback(self, timeout_ms: int = 10000, idle_time_ms: int = 500) -> None:
+        """
+        Fallback polling-based network idle detection.
+        """
+        start_time = asyncio.get_event_loop().time()
+        timeout_seconds = timeout_ms / 1000
+
+        self.logger.info("Using fallback network idle detection")
+
+        while True:
+            try:
+                # Check if our network tracker is available and if network is idle
+                is_idle = await self.page.evaluate(
+                    """
+                    (idleTimeMs) => {
+                        if (typeof window.__networkActivity === 'undefined') {
+                            return true; // Fallback if tracker not available
+                        }
+                        return window.__networkActivity.isIdle(idleTimeMs);
+                    }
+                """,
+                    idle_time_ms,
+                )
+
+                if is_idle:
+                    self.logger.info("Custom network idle detected (fallback)")
+                    break
+
+                # Check timeout
+                if (asyncio.get_event_loop().time() - start_time) >= timeout_seconds:
+                    self.logger.warning(f"Custom network idle timeout after {timeout_ms}ms (fallback)")
+                    break
+
+                # Wait a bit before checking again
+                await asyncio.sleep(0.1)
+
+            except Exception as e:
+                self.logger.warning(f"Custom network idle fallback check failed: {e}")
+                break
+
     async def observation(self):
         """Get parsed page content using the parser script"""
         parser_script_path = Path(self.config.parser_script_path)
@@ -471,8 +578,21 @@ class WebAgentEnv:
 
         # Wait for page to be fully loaded and stable
         try:
+            self.logger.info("Waiting for page to be fully loaded and stable")
             await self.page.wait_for_load_state("domcontentloaded", timeout=self.config.browser.timeouts.page_load_domcontent)
-            await self.page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
+
+            # Use both original networkidle (for page loads) and custom detection (for XHR/fetch)
+            try:
+                # First wait for Playwright's networkidle (handles initial page loads well)
+                await self.page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)  # Shorter timeout
+                self.logger.info("Playwright networkidle detected")
+            except Exception as e:
+                self.logger.info(f"Playwright networkidle timeout (normal): {e}")
+
+            # Then wait for custom network idle detection (handles XHR/fetch after interactions)
+            await self._wait_for_custom_network_idle(timeout_ms=self.config.browser.timeouts.page_load_networkidle, idle_time_ms=self.config.browser.timeouts.custom_network_idle)
+
+            self.logger.info("Page loaded and stable")
         except Exception as e:
             self.logger.warning(f"Page load wait timeout: {e}")
 
