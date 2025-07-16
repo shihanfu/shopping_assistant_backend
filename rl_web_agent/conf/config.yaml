@@ -51,7 +51,8 @@ environment:
         - "--metrics-recording-only"
         - "--disable-sync"
         - "--disable-translate"
-        - "--disable-features=NetworkService,NetworkServiceInProcess"
+        # Removed NetworkService disable as it can interfere with caching
+        # - "--disable-features=NetworkService,NetworkServiceInProcess"
         - "--disable-client-side-phishing-detection"
         - "--disable-domain-reliability"
         - "--disable-crash-reporter"
@@ -64,8 +65,6 @@ environment:
       user_agent: null                 # User agent string to use
       extra_http_headers: null         # Will be set for host rewrites if needed
 
-    # Custom behavior options
-    block_images: true                 # Block loading of images to speed up browsing
 
     # Browser cache and data directories
     cache_dir: "./browser_cache"       # Persistent network cache directory
@@ -77,6 +76,37 @@ environment:
       page_load_domcontent: 10000 # Timeout for DOM content loaded
       page_load_networkidle: 30000 # Timeout for network idle (longer for full page loads)
       element_wait: 5000          # Timeout for waiting for specific elements
+
+# ============================================================================
+# LLM CONFIGURATION
+# ============================================================================
+# Large Language Model provider settings
+llm:
+  provider: "openai"     # Provider: "openai" or "bedrock"
+  max_concurrent: 5      # Maximum concurrent API calls
+
+  # Generation parameters (applied to all providers)
+  generation:
+    temperature: 0.7           # Sampling temperature (0.0 = deterministic, 1.0 = very random)
+    max_tokens: 1000          # Maximum tokens to generate
+    top_p: 0.9                # Nucleus sampling parameter
+    frequency_penalty: 0.0    # Frequency penalty (OpenAI only)
+    presence_penalty: 0.0     # Presence penalty (OpenAI only)
+    stop: []                  # Stop sequences
+
+  # OpenAI Configuration
+  openai:
+    api_key: "${oc.env:OPENAI_API_KEY}"              # OpenAI API key from environment
+    base_url: "https://api.openai.com/v1"            # API base URL
+    model: "gpt-4o-mini"                                   # Default model
+    timeout: 60                                      # Request timeout in seconds
+    max_retries: 2                                   # Maximum retry attempts
+
+  # AWS Bedrock Configuration
+  bedrock:
+    region: "us-east-1"                              # AWS region
+    model_id: "anthropic.claude-3-5-sonnet-20240620-v1:0"  # Bedrock model ID
+    timeout: 60                                      # Request timeout in seconds
 
 # ============================================================================
 # GENERAL SETTINGS

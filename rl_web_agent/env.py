@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from omegaconf import DictConfig, OmegaConf
-from playwright.async_api import Playwright, Request, Route, async_playwright
+from playwright.async_api import Playwright, async_playwright
 
 
 class WebAgentEnv:
@@ -46,13 +46,6 @@ class WebAgentEnv:
             tabs_info.append({"id": i, "title": await page.title(), "url": page.url, "is_active": page == self.page})
         return tabs_info
 
-    async def _handle_route(self, route: Route, request: Request) -> None:
-        """Handle route interception for blocking images"""
-        if request.resource_type == "image":
-            await route.abort()
-        else:
-            await route.continue_()
-
     async def setup(self, task_config: dict | None = None):
         """Initialize the browser environment with configuration"""
         self.task_config = task_config
@@ -76,7 +69,12 @@ class WebAgentEnv:
 
         # Add cache directory if configured
         if hasattr(self.config.browser, "cache_dir") and self.config.browser.cache_dir:
-            launch_options["args"] = launch_options.get("args", []) + [f"--disk-cache-dir={self.config.browser.cache_dir}"]
+            # Use absolute path for cache directory
+            cache_dir = Path(self.config.browser.cache_dir).resolve()
+            cache_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
+            cache_arg = f"--disk-cache-dir={cache_dir}"
+            launch_options["args"] = launch_options.get("args", []) + [cache_arg]
+            self.logger.info(f"Browser cache configured: {cache_arg}")
 
         # Add proxy if enabled
         if self.config.proxy.enabled:
@@ -104,10 +102,14 @@ class WebAgentEnv:
 
         if user_data_dir:
             # Use launch_persistent_context for user data directory
-            # Merge launch_options and context_options for persistent context
+            # Remove --disk-cache-dir from args since persistent context manages its own cache
             persistent_options = {**launch_options, **context_options}
+            if "args" in persistent_options:
+                persistent_options["args"] = [arg for arg in persistent_options["args"] if not arg.startswith("--disk-cache-dir")]
+
             self.context = await self.context_manager.chromium.launch_persistent_context(user_data_dir, **persistent_options)
             self.browser = self.context.browser
+            self.logger.info(f"Using persistent context with cache in user data dir: {user_data_dir}")
         else:
             # Regular launch without persistent context
             self.browser = await self.context_manager.chromium.launch(**launch_options)
@@ -131,11 +133,6 @@ class WebAgentEnv:
         else:
             # Create new page for regular context
             self.page = await self.context.new_page()
-
-        # Set up image blocking if enabled
-        if self.config.browser.block_images:
-            await self.page.route("**/*", self._handle_route)
-            self.logger.info("Image blocking enabled")
 
         # Navigate to start URL from task config
         if self.task_config and "start_url" in self.task_config:

@@ -8,14 +8,15 @@ import asyncio
 import json
 import logging
 import re
-import readline
 import shutil
 import sys
-import tempfile
 from pathlib import Path
 
 import hydra
 from omegaconf import DictConfig
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.patch_stdout import patch_stdout
 
 from rl_web_agent.env import WebAgentEnv
 
@@ -150,33 +151,15 @@ class WebAgentREPL:
         self.parser = ActionParser()
         self.logger = logging.getLogger(__name__)
         self.temp_user_data_dir = None
-        self._setup_readline()
+        self.session = PromptSession(history=FileHistory(".repl_history"))
 
-    def _setup_readline(self):
-        """Configure readline for arrow keys and history"""
-        try:
-            # Enable arrow keys and command history
-            readline.parse_and_bind("tab: complete")
-            readline.parse_and_bind('"\\e[A": history-search-backward')
-            readline.parse_and_bind('"\\e[B": history-search-forward')
-            readline.parse_and_bind('"\\e[C": forward-char')
-            readline.parse_and_bind('"\\e[D": backward-char')
-
-            # Set history size
-            readline.set_history_length(1000)
-
-            # Try to load history file
+    async def _async_input(self, prompt_text: str) -> str:
+        """Async input using prompt-toolkit with proper signal handling"""
+        with patch_stdout():
             try:
-                readline.read_history_file(".repl_history")
-            except FileNotFoundError:
-                pass  # No history file yet
-        except Exception as e:
-            self.logger.debug(f"Readline setup failed: {e}")
-
-    async def _async_input(self, prompt: str) -> str:
-        """Async wrapper for input() with readline support"""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, input, prompt)
+                return await self.session.prompt_async(prompt_text)
+            except (KeyboardInterrupt, EOFError):
+                raise KeyboardInterrupt() from None
 
     async def start(self):
         """Start the REPL session"""
@@ -245,20 +228,18 @@ class WebAgentREPL:
             except Exception as e:
                 self.logger.debug(f"Failed to cleanup temp dir: {e}")
 
-        # Save command history
-        try:
-            readline.write_history_file(".repl_history")
-        except Exception as e:
-            self.logger.debug(f"Failed to save history: {e}")
+        # History is automatically saved by PromptSession
 
     async def _setup_env(self):
         """Initialize the web agent environment"""
-        # Create temporary directory for user data (fresh session each time)
-        self.temp_user_data_dir = tempfile.mkdtemp(prefix="repl_session_")
+        # For REPL, use the persistent browser_session directory directly
+        # This ensures cache persists across sessions
+        session_dir = Path(self.cfg.environment.browser.user_data_dir).resolve()
+        session_dir.mkdir(parents=True, exist_ok=True)
 
-        # Override the user_data_dir in config for REPL sessions
-        # Keep cache_dir as configured for persistence
-        self.cfg.environment.browser.user_data_dir = self.temp_user_data_dir
+        # Don't use temporary directory for REPL - use the configured session dir
+        # This way cache and session data both persist
+        self.temp_user_data_dir = str(session_dir)
 
         self.env = WebAgentEnv(self.cfg.environment)
 
