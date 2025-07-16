@@ -1,83 +1,476 @@
 import logging
+import uuid
 from pathlib import Path
+from typing import ClassVar
 
-import playwright
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
+from playwright.async_api import Page, Playwright, Request, Route, async_playwright
 
 
 class WebAgentEnv:
-    def __init__(self, config: DictConfig):
-        self.config = config
+    _shared_playwright: ClassVar[Playwright | None] = None
+    _shared_playwright_users: ClassVar[int] = 0
+
+    def __init__(self, environment_config: DictConfig):
+        self.config = environment_config
         self.context_manager = None
         self.browser = None
         self.context = None
-        self.page = None
-
-        # Set up logging
-        logging.basicConfig(level=getattr(logging, config.log_level))
+        self.page = None  # Current active page
+        self.pages: list[Page] = []  # All open pages
+        self.uuid = getattr(environment_config, "uuid", str(uuid.uuid4()))
         self.logger = logging.getLogger(__name__)
+        self.task_config: dict | None = None
+        self.server_ips: dict[str, str] = {}  # Mapping of site name to server IP
 
-    async def setup(self):
+    @classmethod
+    async def _ensure_playwright(cls) -> Playwright:
+        """Ensure shared Playwright instance exists and return it"""
+        if cls._shared_playwright is None:
+            cls._shared_playwright = await async_playwright().start()
+        cls._shared_playwright_users += 1
+        return cls._shared_playwright
+
+    @classmethod
+    async def _cleanup_playwright(cls) -> None:
+        """Cleanup shared Playwright instance if no more users"""
+        cls._shared_playwright_users -= 1
+        if cls._shared_playwright_users == 0 and cls._shared_playwright is not None:
+            await cls._shared_playwright.stop()
+            cls._shared_playwright = None
+
+    async def _get_tabs_info(self) -> list[dict]:
+        """Get information about all open tabs"""
+        tabs_info = []
+        for i, page in enumerate(self.pages):
+            tabs_info.append({"id": i, "title": await page.title(), "url": page.url, "is_active": page == self.page})
+        return tabs_info
+
+    async def _handle_route(self, route: Route, request: Request) -> None:
+        """Handle route interception for blocking images"""
+        if request.resource_type == "image":
+            await route.abort()
+        else:
+            await route.continue_()
+
+    async def setup(self, task_config: dict | None = None):
         """Initialize the browser environment with configuration"""
-        self.context_manager = await playwright.async_playwright().start()
+        self.task_config = task_config
+        self.context_manager = await self._ensure_playwright()
 
-        # Browser launch options
-        launch_options = {
-            "headless": self.config.browser.headless,
-        }
+        # TODO: Launch web servers based on task_config["sites"]
+        # Example implementation:
+        # if self.task_config and "sites" in self.task_config:
+        #     for site in self.task_config["sites"]:
+        #         self.server_ips[site] = await launch_web_server(site)
+        # else:
+        #     self.logger.warning("No sites specified in task config")
+
+        # Placeholder IPs for testing, should come from server launch
+        if self.task_config and "sites" in self.task_config:
+            for site in self.task_config["sites"]:
+                self.server_ips[site] = "10.58.210.60"  # This should come from actual server launch
+
+        # Get launch options from config and convert to dict
+        launch_options = OmegaConf.to_container(self.config.browser.launch_options, resolve=True)
 
         # Add proxy if enabled
         if self.config.proxy.enabled:
             launch_options["proxy"] = {"server": self.config.proxy.server}
 
-        # Get browser type
-        browser_type = getattr(self.context_manager, self.config.browser.browser_type)
-        self.browser = await browser_type.launch(**launch_options)
+        # Launch browser
+        self.browser = await self.context_manager.chromium.launch(**launch_options)
 
-        # Context options
-        context_options = {"viewport": {"width": self.config.browser.viewport_width, "height": self.config.browser.viewport_height}}
+        # Get context options from config and convert to dict
+        context_options = OmegaConf.to_container(self.config.browser.context_options, resolve=True)
 
-        # Add extra headers if configured
-        if self.config.browser.extra_http_headers:
-            context_options["extra_http_headers"] = self.config.browser.extra_http_headers
+        # Add host rewrite headers for each site
+        extra_headers = {}
+        for site_name, hostname in self.config.sites.items():
+            if site_name in self.server_ips:
+                server_ip = self.server_ips[site_name]
+                rewrite_header = f"{hostname}={server_ip}:80"
+                extra_headers["x-target-host-rewrite"] = rewrite_header
+                self.logger.info(f"Added host rewrite for {site_name}: {rewrite_header}")
 
-        # Add user agent if configured
-        if self.config.browser.user_agent:
-            context_options["user_agent"] = self.config.browser.user_agent
+        if extra_headers:
+            context_options["extra_http_headers"] = extra_headers
 
         self.context = await self.browser.new_context(**context_options)
 
         # Add init script if it exists
-        init_script_path = Path(self.config.environment.init_script_path)
+        init_script_path = Path(self.config.init_script_path)
         if init_script_path.exists():
             with open(init_script_path) as f:
                 await self.context.add_init_script(f.read())
         else:
             self.logger.warning(f"Init script not found: {init_script_path}")
 
+        # Create initial page
         self.page = await self.context.new_page()
-        await self.page.goto(self.config.environment.target_url)
+        self.pages = [self.page]
+
+        # Set up image blocking if enabled
+        if self.config.browser.block_images:
+            await self.page.route("**/*", self._handle_route)
+            self.logger.info("Image blocking enabled")
+
+        # Navigate to start URL from task config
+        if self.task_config and "start_url" in self.task_config:
+            await self.page.goto(self.task_config["start_url"], wait_until="domcontentloaded")
+        else:
+            self.logger.warning("No start_url specified in task config")
+
+    async def new_tab(self, url: str | None = None) -> int:
+        """Create a new tab and optionally navigate to URL. Returns tab ID."""
+        page = await self.context.new_page()
+        if url:
+            await page.goto(url, wait_until="domcontentloaded")
+        self.pages.append(page)
+        self.page = page  # Make new tab active
+        return len(self.pages) - 1
+
+    async def switch_tab(self, tab_id: int) -> None:
+        """Switch to a different tab by ID"""
+        if 0 <= tab_id < len(self.pages):
+            self.page = self.pages[tab_id]
+        else:
+            raise ValueError(f"Invalid tab ID: {tab_id}")
+
+    async def close_tab(self, tab_id: int) -> None:
+        """Close a tab by ID"""
+        if 0 <= tab_id < len(self.pages):
+            page = self.pages[tab_id]
+            await page.close()
+            self.pages.pop(tab_id)
+            # If we closed the active tab, switch to the last tab
+            if page == self.page and self.pages:
+                self.page = self.pages[-1]
+        else:
+            raise ValueError(f"Invalid tab ID: {tab_id}")
 
     async def reset(self):
         """Reset the environment to initial state"""
-        await self.page.goto(self.config.environment.target_url)
+        # Close all tabs except the first one
+        for page in self.pages:
+            await page.close()
+        self.page = await self.context.new_page()
+        self.pages = [self.page]
 
-    async def step(self, action):
-        """Execute an action in the environment"""
-        await self.page.click(action)
+        # Return to start URL from task config
+        if self.task_config and "start_url" in self.task_config:
+            await self.page.goto(self.task_config["start_url"], wait_until="domcontentloaded")
+        else:
+            self.logger.warning("No start_url specified in task config")
 
-    async def get_page_content(self):
+    async def step(self, action: str):
+        """
+        Execute an action in the environment using JSON string format and return the next observation.
+
+        Args:
+            action: JSON string describing the action to execute
+
+        Returns:
+            dict: The observation after executing the action (same format as observation() method)
+
+        Examples:
+            obs = await env.step('{"action": "click", "target": "login_button"}')
+            obs = await env.step('{"action": "type", "target": "username", "text": "john_doe", "enter": true}')
+            obs = await env.step('{"action": "select", "target": "country", "value": "US"}')
+            obs = await env.step('{"action": "goto_url", "url": "https://example.com"}')
+            obs = await env.step('{"action": "back"}')
+            obs = await env.step('{"action": "new_tab", "url": "https://example.com"}')
+            obs = await env.step('{"action": "switch_tab", "tab_id": 1}')
+            obs = await env.step('{"action": "close_tab", "tab_id": 1}')
+        """
+        import json
+
+        try:
+            action_data = json.loads(action)
+            action_name = action_data.get("action")
+
+            if action_name == "click":
+                await self.click(action_data["target"])
+
+            elif action_name == "type":
+                text = action_data["text"]
+                target = action_data["target"]
+                press_enter = action_data.get("enter", False)
+                await self.type(target, text, press_enter)
+
+            elif action_name == "hover":
+                await self.hover(action_data["target"])
+
+            elif action_name == "select":
+                await self.select(action_data["target"], action_data["value"])
+
+            elif action_name == "clear":
+                await self.clear(action_data["target"])
+
+            elif action_name == "key_press":
+                key = action_data["key"]
+                target = action_data.get("target")
+                await self.key_press(key, target)
+
+            elif action_name == "goto_url":
+                await self.goto_url(action_data["url"])
+
+            elif action_name == "back":
+                await self.back()
+
+            elif action_name == "forward":
+                await self.forward()
+
+            elif action_name == "refresh":
+                await self.refresh()
+
+            elif action_name == "new_tab":
+                url = action_data.get("url")
+                await self.new_tab(url)
+
+            elif action_name == "switch_tab":
+                tab_id = action_data["tab_id"]
+                await self.switch_tab(tab_id)
+
+            elif action_name == "close_tab":
+                tab_id = action_data["tab_id"]
+                await self.close_tab(tab_id)
+
+            else:
+                self.logger.error(f"Unknown action: {action_name}")
+                raise ValueError(f"Unknown action: {action_name}")
+
+            # Return the next observation after executing the action
+            observation = await self.observation()
+            observation["error"] = None
+            return observation
+
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Invalid JSON action format: {action}")
+            observation = await self.observation()
+            observation["error"] = f"Invalid JSON action format: {e}"
+            return observation
+        except KeyError as e:
+            self.logger.error(f"Missing required parameter in action: {e}")
+            observation = await self.observation()
+            observation["error"] = f"Missing required parameter in action: {e}"
+            return observation
+        except Exception as e:
+            self.logger.error(f"Error executing action: {action}, error: {e}")
+            observation = await self.observation()
+            observation["error"] = f"Error executing action: {e}"
+            return observation
+
+    # ===================================================================
+    # ACTION METHODS
+    # ===================================================================
+
+    async def click(self, semantic_id: str) -> None:
+        """
+        Click on an element identified by its semantic ID.
+
+        Args:
+            semantic_id: The data-semantic-id of the element to click
+
+        Example:
+            await env.click("login_button")
+            await env.click("menu.settings")
+        """
+        selector = f'[data-semantic-id="{semantic_id}"]'
+        element = self.page.locator(selector)
+
+        # Scroll element into view before clicking
+        await element.scroll_into_view_if_needed()
+        await element.click()
+        self.logger.info(f"Clicked element: {semantic_id}")
+
+    async def type(self, semantic_id: str, text: str, press_enter: bool = False) -> None:
+        """
+        Type text into an input element.
+
+        Args:
+            semantic_id: The data-semantic-id of the input element
+            text: Text to type
+            press_enter: Whether to press Enter after typing
+
+        Example:
+            await env.type("search_input", "hello world")
+            await env.type("username", "john_doe", press_enter=True)
+        """
+        selector = f'[data-semantic-id="{semantic_id}"]'
+        element = self.page.locator(selector)
+
+        await element.scroll_into_view_if_needed()
+        await element.fill(text)  # Clear and type
+
+        if press_enter:
+            await element.press("Enter")
+
+        self.logger.info(f"Typed '{text}' into element: {semantic_id}")
+
+    async def hover(self, semantic_id: str) -> None:
+        """
+        Hover over an element to trigger tooltips or dropdown menus.
+
+        Args:
+            semantic_id: The data-semantic-id of the element to hover over
+
+        Example:
+            await env.hover("menu_item")
+            await env.hover("tooltip_trigger")
+        """
+        selector = f'[data-semantic-id="{semantic_id}"]'
+        element = self.page.locator(selector)
+
+        await element.scroll_into_view_if_needed()
+        await element.hover()
+        self.logger.info(f"Hovered over element: {semantic_id}")
+
+    async def select(self, semantic_id: str, value: str) -> None:
+        """
+        Select an option from a dropdown/select element.
+
+        Args:
+            semantic_id: The data-semantic-id of the select element
+            value: The value of the option to select
+
+        Example:
+            await env.select("country_dropdown", "USA")
+            await env.select("language_select", "en")
+        """
+        selector = f'[data-semantic-id="{semantic_id}"]'
+        element = self.page.locator(selector)
+
+        await element.scroll_into_view_if_needed()
+        await element.select_option(value)
+        self.logger.info(f"Selected '{value}' in element: {semantic_id}")
+
+    async def clear(self, semantic_id: str) -> None:
+        """
+        Clear the content of an input element.
+
+        Args:
+            semantic_id: The data-semantic-id of the input element to clear
+
+        Example:
+            await env.clear("search_input")
+            await env.clear("comment_textarea")
+        """
+        selector = f'[data-semantic-id="{semantic_id}"]'
+        element = self.page.locator(selector)
+
+        await element.scroll_into_view_if_needed()
+        await element.clear()
+        self.logger.info(f"Cleared element: {semantic_id}")
+
+    async def key_press(self, key: str, semantic_id: str | None = None) -> None:
+        """
+        Press a keyboard key, optionally on a specific element.
+
+        Args:
+            key: Key to press (e.g., "Enter", "Escape", "Tab", "ArrowDown")
+            semantic_id: Optional element to focus before pressing key
+
+        Example:
+            await env.key_press("Escape")  # Press Escape globally
+            await env.key_press("Enter", "search_input")  # Press Enter on search input
+            await env.key_press("ArrowDown", "dropdown")  # Navigate dropdown
+        """
+        if semantic_id:
+            selector = f'[data-semantic-id="{semantic_id}"]'
+            element = self.page.locator(selector)
+            await element.scroll_into_view_if_needed()
+            await element.press(key)
+            self.logger.info(f"Pressed '{key}' on element: {semantic_id}")
+        else:
+            await self.page.keyboard.press(key)
+            self.logger.info(f"Pressed '{key}' globally")
+
+    # ===================================================================
+    # NAVIGATION ACTIONS
+    # ===================================================================
+
+    async def goto_url(self, url: str) -> None:
+        """
+        Navigate to a specific URL in the current tab.
+
+        Args:
+            url: URL to navigate to
+
+        Example:
+            await env.goto_url("https://google.com")
+            await env.goto_url("http://localhost:3000/login")
+        """
+        await self.page.goto(url, wait_until="domcontentloaded")
+        self.logger.info(f"Navigated to: {url}")
+
+    async def back(self) -> None:
+        """
+        Navigate back in browser history.
+
+        Example:
+            await env.back()
+        """
+        await self.page.go_back(wait_until="domcontentloaded")
+        self.logger.info("Navigated back")
+
+    async def forward(self) -> None:
+        """
+        Navigate forward in browser history.
+
+        Example:
+            await env.forward()
+        """
+        await self.page.go_forward(wait_until="domcontentloaded")
+        self.logger.info("Navigated forward")
+
+    async def refresh(self) -> None:
+        """
+        Refresh/reload the current page.
+
+        Example:
+            await env.refresh()
+        """
+        await self.page.reload(wait_until="domcontentloaded")
+        self.logger.info("Page refreshed")
+
+    async def observation(self):
         """Get parsed page content using the parser script"""
-        parser_script_path = Path(self.config.environment.parser_script_path)
+        parser_script_path = Path(self.config.parser_script_path)
+        content = {}
+
+        # Wait for page to be fully loaded and stable
+        try:
+            await self.page.wait_for_load_state("domcontentloaded", timeout=5000)
+            await self.page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception as e:
+            self.logger.warning(f"Page load wait timeout: {e}")
+
+        # Additional safety check - wait for body element
+        try:
+            await self.page.wait_for_selector("body", timeout=5000)
+        except Exception as e:
+            self.logger.warning(f"Body element not found: {e}")
+
         if parser_script_path.exists():
             with open(parser_script_path) as f:
                 parser_code = f.read()
-            return await self.page.evaluate(parser_code)
+            try:
+                content = await self.page.evaluate(parser_code)
+            except Exception as e:
+                self.logger.error(f"Parser script failed: {e}")
+                # Fallback to basic HTML content
+                content = {"html": await self.page.content()}
         else:
             self.logger.warning(f"Parser script not found: {parser_script_path}")
-            return {"html": await self.page.content()}
+            content = {"html": await self.page.content()}
+
+        # Add tabs information to the observation
+        content["tabs"] = await self._get_tabs_info()
+        return content
 
     async def close(self):
         """Clean up and close the browser"""
+        # Stopping playwright will automatically cleanup all browsers, contexts and pages
         if self.context_manager:
-            await self.context_manager.close()
+            await self._cleanup_playwright()

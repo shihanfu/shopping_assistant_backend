@@ -3,45 +3,69 @@
 #
 # Single configuration file with all settings.
 # Override any setting from the command line:
-#   python -m rl_web_agent.main browser.headless=true proxy.enabled=false
-
-# ============================================================================
-# PROXY CONFIGURATION
-# ============================================================================
-# Proxy setup allows:
-# - Network request interception and modification
-# - Host rewriting for internal/external address mapping
-# - Request/response logging and debugging
-# - Traffic routing through custom proxy server
-proxy:
-  server: "http://localhost:8080"    # Proxy server URL (must be running)
-  enabled: true                      # Enable proxy routing (set false to bypass)
-
-# ============================================================================
-# BROWSER CONFIGURATION
-# ============================================================================
-# Browser settings for GUI mode with standard viewport
-# Settings:
-# - headless: false (show browser window)
-# - browser_type: chromium (fastest, most compatible)
-# - viewport: 1920x1080 (standard desktop resolution)
-# - extra_http_headers: includes host rewrite for proxy routing
-browser:
-  headless: false                    # Show browser window (set true for CI/automation)
-  browser_type: "chromium"           # Browser engine: chromium, firefox, or webkit
-  viewport_width: 1920               # Browser viewport width in pixels
-  viewport_height: 1080              # Browser viewport height in pixels
-  user_agent: null                   # Use default user agent (set string to override)
-  # HTTP headers sent with all requests
-  extra_http_headers:
+#   python -m rl_web_agent.main environment.browser.headless=true environment.proxy.enabled=false
 
 # ============================================================================
 # ENVIRONMENT CONFIGURATION
 # ============================================================================
-# Web environment and script paths
+# Web environment including browser, proxy, and script paths
 environment:
+  # Site configurations - mapping of site names to their hostnames
+  # These hostnames will be rewritten to actual IP addresses by the proxy
+  sites:
+    shopping: "metis.lti.cs.cmu.edu:7770"
+    shopping_admin: "ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780"
+    reddit: "ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999"
+    gitlab: "ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023"
+    map: "ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000"
+    wikipedia: "ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8888"
+
   init_script_path: "rl_web_agent/javascript/initscript.js"   # Path to JavaScript init script
   parser_script_path: "rl_web_agent/javascript/parser.js"     # Path to JavaScript parser script
+
+  # Proxy configuration
+  proxy:
+    server: "http://localhost:8080"    # Proxy server URL (must be running)
+    enabled: true                      # Enable proxy routing (set false to bypass)
+
+  # Browser configuration
+  # Maps directly to Playwright's launch and context options
+  # Add any Playwright option by following their API structure:
+  # https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch
+  # https://playwright.dev/python/docs/api/class-browser#browser-new-context
+  browser:
+    # Launch options
+    launch_options:
+      headless: false                  # Show browser window (set true for CI/automation)
+      args:                           # Performance optimization args
+        - "--disable-autofill-keyboard-accessory-view"
+        - "--disable-autofill-profile-update"
+        - "--disable-autofill"
+        - "--disable-extensions"
+        - "--disable-background-networking"
+        - "--safebrowsing-disable-auto-update"
+        - "--disable-component-update"
+        - "--disable-default-apps"
+        - "--no-first-run"
+        - "--no-default-browser-check"
+        - "--metrics-recording-only"
+        - "--disable-sync"
+        - "--disable-translate"
+        - "--disable-features=NetworkService,NetworkServiceInProcess"
+        - "--disable-client-side-phishing-detection"
+        - "--disable-domain-reliability"
+        - "--disable-crash-reporter"
+
+    # Context options
+    context_options:
+      viewport:
+        width: 1920                    # Browser viewport width in pixels
+        height: 1080                   # Browser viewport height in pixels
+      user_agent: null                 # User agent string to use
+      extra_http_headers: null         # Will be set for host rewrites if needed
+
+    # Custom behavior options
+    block_images: true                 # Block loading of images to speed up browsing
 
 # ============================================================================
 # GENERAL SETTINGS

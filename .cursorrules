@@ -26,7 +26,7 @@ rl_web_agent/
 ## Configuration System (Hydra)
 - **Always use Hydra decorators** for main entry points: `@hydra.main()`
 - **Single config file**: All settings in `conf/config.yaml`
-- **Override syntax**: `browser.headless=true`, `proxy.enabled=false`
+- **Override syntax**: `environment.browser.headless=true`, `environment.proxy.enabled=false`
 - **Config validation**: Use dataclasses with type hints in `config.py`
 
 ## Coding Conventions
@@ -73,9 +73,9 @@ finally:
     await env.close()
 
 # ✅ Good: Configure browser from config
-launch_options = {"headless": cfg.browser.headless}
-if cfg.proxy.enabled:
-    launch_options["proxy"] = {"server": cfg.proxy.server}
+launch_options = {"headless": cfg.environment.browser.headless}
+if cfg.environment.proxy.enabled:
+    launch_options["proxy"] = {"server": cfg.environment.proxy.server}
 ```
 
 ## File Creation Guidelines
@@ -102,7 +102,7 @@ if cfg.proxy.enabled:
 python -m rl_web_agent.main
 
 # Override parameters
-python -m rl_web_agent.main browser.headless=true proxy.enabled=false
+python -m rl_web_agent.main environment.browser.headless=true environment.proxy.enabled=false
 ```
 
 ## Dependencies Management
