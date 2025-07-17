@@ -8,7 +8,8 @@
       "WebFetch(domain:boto3.amazonaws.com)",
       "WebFetch(domain:platform.openai.com)",
       "Bash(python test_evaluation.py)",
-      "Bash(python test_evaluation_simple.py)"
+      "Bash(python test_evaluation_simple.py)",
+      "Bash(python test_agent.py)"
     ],
     "deny": []
   }

@@ -37,7 +37,7 @@ async def test_web_agent():
         test_task = json.load(f)
 
     # Create environment and agent
-    env = WebAgentEnv(cfg.environment)
+    env = WebAgentEnv(cfg.environment, cfg)  # Pass full config for accounts access
     agent = await create_web_agent(cfg.llm)
 
     try:

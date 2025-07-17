@@ -314,7 +314,7 @@ class WebAgent:
         Returns:
             Dictionary with task results
         """
-        env = WebAgentEnv(env_config)
+        env = WebAgentEnv(env_config, None)  # No full config available in this context
 
         try:
             await env.setup(task_config)

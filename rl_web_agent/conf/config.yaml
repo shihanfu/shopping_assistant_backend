@@ -113,6 +113,24 @@ llm:
     timeout: 60                                      # Request timeout in seconds
 
 # ============================================================================
+# AUTHENTICATION CONFIGURATION
+# ============================================================================
+# Account credentials for WebArena sites
+accounts:
+  shopping:
+    username: "emma.lopez@gmail.com"
+    password: "Password.123"
+  shopping_admin:
+    username: "admin"
+    password: "admin1234"
+  reddit:
+    username: "MarvelsGrantMan136"
+    password: "test1234"
+  gitlab:
+    username: "byteblaze"
+    password: "hello1234"
+
+# ============================================================================
 # GENERAL SETTINGS
 # ============================================================================
 debug: false           # Enable debug logging and detailed output
