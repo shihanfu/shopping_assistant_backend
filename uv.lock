@@ -4918,6 +4918,7 @@ dependencies = [
     { name = "requests" },
     { name = "requests-aws4auth" },
     { name = "setuptools" },
+    { name = "text-generation" },
     { name = "wandb" },
 ]
 
@@ -4998,6 +4999,7 @@ requires-dist = [
     { name = "requests-aws4auth", specifier = ">=1.3.1" },
     { name = "setuptools", specifier = ">=80.9.0" },
     { name = "sglang", extras = ["all"], marker = "extra == 'sglang'", specifier = "==0.4.6.post5" },
+    { name = "text-generation", specifier = ">=0.7.0" },
     { name = "transformer-engine", marker = "extra == 'compile'", git = "https://github.com/NVIDIA/TransformerEngine.git?rev=v2.3" },
     { name = "types-tqdm", marker = "extra == 'webarena'", specifier = ">=4.67.0.20250516" },
     { name = "vllm", marker = "extra == 'vllm'", specifier = "==0.8.2" },
@@ -5664,6 +5666,20 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/46/56/c1245f7bb674072bb0f9e8516bd60f7608ffe114e911c08ebcaefca58f46/tensorstore-0.1.75-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f00144d23eaf511104651b4479fcb111b9befc13db3018277d358144be503ef4", size = 17454695 },
     { url = "https://files.pythonhosted.org/packages/db/78/8a103a9012662fb8d85c3d6daa9c9678d49f260a21b5426e0a1616e63c42/tensorstore-0.1.75-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5c8697cab7b24440a13df8d9e6d000c1067ed3f97204a3dae5388e9e60606834", size = 18820794 },
     { url = "https://files.pythonhosted.org/packages/7d/3d/69d7997fe67fd9cb8fce07ea0f3f3e754a6ea0d2c16f1c46e178abe7da0e/tensorstore-0.1.75-cp313-cp313-win_amd64.whl", hash = "sha256:df410ca28e679c1c8a5b361267ce02fe60a9c4d78964cb984d884d15c538f2f2", size = 12607428 },
+]
+
+[[package]]
+name = "text-generation"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "huggingface-hub" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ef/53/1b2dc20686079464ae381f230a9fc412984a4255cea73c21afb6a46bc21f/text_generation-0.7.0.tar.gz", hash = "sha256:689200cd1f0d4141562af2515393c2c21cdbd9fac21c8398bf3043cdcc14184e", size = 10373 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7b/79/8fc351fd919a41287243c998a47692c7eb0fa5acded13db0080f2c6f1852/text_generation-0.7.0-py3-none-any.whl", hash = "sha256:02ab337a0ee0e7c70e04a607b311c261caae74bde46a7d837c6fdd150108f4d8", size = 12718 },
 ]
 
 [[package]]
