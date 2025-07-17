@@ -138,6 +138,12 @@ class ActionParser:
         elif func_name == "close_tab":
             return {"action": "close_tab", "tab_id": int(args[0])}
 
+        elif func_name == "terminate":
+            result = {"action": "terminate"}
+            if len(args) > 0:
+                result["answer"] = args[0]
+            return result
+
         else:
             raise ValueError(f"Unknown action: {func_name}")
 
@@ -173,6 +179,7 @@ class WebAgentREPL:
         print("  select(element_id, value)")
         print("  new_tab(url)")
         print("  switch_tab(tab_id)")
+        print("  terminate(answer)")
         print("")
         print("Special commands:")
         print("  help - Show this help")
@@ -335,6 +342,11 @@ Special Commands:
             else:
                 self._safe_print("🔗 URL: Not available")
                 self._safe_print("📑 Title: Not available")
+
+            # Model answer if available
+            if obs.get("model_answer"):
+                self._safe_print(f"🤖 Model Answer: {obs['model_answer']}")
+
             self._safe_print("")
 
             # HTML - Show full HTML first

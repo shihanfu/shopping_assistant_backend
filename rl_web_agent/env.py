@@ -23,6 +23,7 @@ class WebAgentEnv:
         self.logger = logging.getLogger(__name__)
         self.task_config: dict | None = None
         self.server_ips: dict[str, str] = {}  # Mapping of site name to server IP
+        self.model_answer: str | None = None  # Model's final answer/response
 
     @classmethod
     async def _ensure_playwright(cls) -> Playwright:
@@ -215,6 +216,7 @@ class WebAgentEnv:
             obs = await env.step('{"action": "new_tab", "url": "https://example.com"}')
             obs = await env.step('{"action": "switch_tab", "tab_id": 1}')
             obs = await env.step('{"action": "close_tab", "tab_id": 1}')
+            obs = await env.step('{"action": "terminate", "answer": "The product costs $29.99"}')
         """
         import json
 
@@ -269,6 +271,10 @@ class WebAgentEnv:
                 tab_id = action_data["tab_id"]
                 await self.close_tab(tab_id)
 
+            elif action_name == "terminate":
+                answer = action_data.get("answer", "")
+                await self.terminate(answer)
+
             else:
                 self.logger.error(f"Unknown action: {action_name}")
                 raise ValueError(f"Unknown action: {action_name}")
@@ -317,9 +323,10 @@ class WebAgentEnv:
         selector = f'[data-semantic-id="{semantic_id}"]'
         element = self.page.locator(selector)
 
-        # Scroll element into view before clicking
-        await element.scroll_into_view_if_needed()
-        await element.click()
+        # Short timeout scroll - fail fast on hallucinated elements
+        # Since we provide full page content, elements should exist
+        await element.scroll_into_view_if_needed(timeout=500)
+        await element.click(force=True)
         self.logger.info(f"Clicked element: {semantic_id}")
 
     async def type(self, semantic_id: str, text: str, press_enter: bool = False) -> None:
@@ -338,11 +345,12 @@ class WebAgentEnv:
         selector = f'[data-semantic-id="{semantic_id}"]'
         element = self.page.locator(selector)
 
-        await element.scroll_into_view_if_needed()
-        await element.fill(text)  # Clear and type
+        # Short timeout scroll - fail fast on hallucinated elements
+        await element.scroll_into_view_if_needed(timeout=500)
+        await element.fill(text, force=True)  # Clear and type
 
         if press_enter:
-            await element.press("Enter")
+            await element.press("Enter", force=True)
 
         self.logger.info(f"Typed '{text}' into element: {semantic_id}")
 
@@ -360,8 +368,9 @@ class WebAgentEnv:
         selector = f'[data-semantic-id="{semantic_id}"]'
         element = self.page.locator(selector)
 
-        await element.scroll_into_view_if_needed()
-        await element.hover()
+        # Short timeout scroll - fail fast on hallucinated elements
+        await element.scroll_into_view_if_needed(timeout=500)
+        await element.hover(force=True)
         self.logger.info(f"Hovered over element: {semantic_id}")
 
     async def select(self, semantic_id: str, value: str) -> None:
@@ -379,8 +388,9 @@ class WebAgentEnv:
         selector = f'[data-semantic-id="{semantic_id}"]'
         element = self.page.locator(selector)
 
-        await element.scroll_into_view_if_needed()
-        await element.select_option(value)
+        # Short timeout scroll - fail fast on hallucinated elements
+        await element.scroll_into_view_if_needed(timeout=500)
+        await element.select_option(value, force=True)
         self.logger.info(f"Selected '{value}' in element: {semantic_id}")
 
     async def clear(self, semantic_id: str) -> None:
@@ -397,8 +407,9 @@ class WebAgentEnv:
         selector = f'[data-semantic-id="{semantic_id}"]'
         element = self.page.locator(selector)
 
-        await element.scroll_into_view_if_needed()
-        await element.clear()
+        # Short timeout scroll - fail fast on hallucinated elements
+        await element.scroll_into_view_if_needed(timeout=500)
+        await element.clear(force=True)
         self.logger.info(f"Cleared element: {semantic_id}")
 
     async def key_press(self, key: str, semantic_id: str | None = None) -> None:
@@ -417,8 +428,9 @@ class WebAgentEnv:
         if semantic_id:
             selector = f'[data-semantic-id="{semantic_id}"]'
             element = self.page.locator(selector)
-            await element.scroll_into_view_if_needed()
-            await element.press(key)
+            # Short timeout scroll - fail fast on hallucinated elements
+            await element.scroll_into_view_if_needed(timeout=500)
+            await element.press(key, force=True)
             self.logger.info(f"Pressed '{key}' on element: {semantic_id}")
         else:
             await self.page.keyboard.press(key)
@@ -471,6 +483,23 @@ class WebAgentEnv:
         """
         await self.page.reload(wait_until="domcontentloaded")
         self.logger.info("Page refreshed")
+
+    async def terminate(self, answer: str = "") -> None:
+        """
+        Terminate the task with an optional answer.
+
+        Args:
+            answer: The model's final answer/response for the task
+
+        Example:
+            await env.terminate("The product costs $29.99")
+            await env.terminate()  # Terminate without answer
+        """
+        self.model_answer = answer
+        if answer:
+            self.logger.info(f"Task terminated with answer: {answer}")
+        else:
+            self.logger.info("Task terminated without answer")
 
     async def _wait_for_custom_network_idle(self, timeout_ms: int = 10000, idle_time_ms: int = 500) -> None:
         """
@@ -617,7 +646,62 @@ class WebAgentEnv:
 
         # Add tabs information to the observation
         content["tabs"] = await self._get_tabs_info()
+
+        # Add model answer if available
+        content["model_answer"] = self.model_answer
+
+        # Add evaluation information
+        if self.task_config and "eval" in self.task_config:
+            try:
+                score = self.evaluate_task()
+                content["score"] = score
+
+                # Determine if terminated - always True if model called terminate
+                if self.model_answer is not None:
+                    # Model called terminate - always mark as terminated
+                    content["terminated"] = True
+                else:
+                    # Model hasn't terminated yet
+                    eval_types = self.task_config["eval"]["eval_types"]
+                    if "string_match" in eval_types:
+                        # For string match: not terminated until model stops
+                        content["terminated"] = False
+                    else:
+                        # For other evaluations: terminated if score = 1.0
+                        content["terminated"] = score == 1.0
+
+            except Exception as e:
+                self.logger.warning(f"Evaluation failed: {e}")
+                content["score"] = 0.0
+                content["terminated"] = False
+        else:
+            content["score"] = 0.0
+            content["terminated"] = False
+
         return content
+
+    def evaluate_task(self) -> float:
+        """
+        Evaluate current task using self.task_config.
+
+        Returns:
+            float: Score between 0.0 and 1.0 indicating task success
+
+        Raises:
+            ValueError: If task_config is not set or evaluation fails
+            ImportError: If WebArena evaluation modules are not available
+        """
+        if self.task_config is None:
+            raise ValueError("task_config must be set before evaluation")
+
+        # Import our simplified evaluator (no WebArena dependencies)
+        from rl_web_agent.evaluator import evaluate_task
+
+        # Run evaluation using our simplified evaluator
+        score = evaluate_task(answer=self.model_answer or "", page=self.page, config=self.task_config)
+
+        self.logger.info(f"Task evaluation score: {score}")
+        return score
 
     async def close(self):
         """Clean up and close the browser"""

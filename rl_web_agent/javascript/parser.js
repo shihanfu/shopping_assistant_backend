@@ -118,6 +118,11 @@ const parse = () => {
         }
 
         /* ---------- clickability detection -------------------------------- */
+        // Check if element is disabled or has pointer-events: none FIRST
+        const isDisabled = original.disabled ||
+                          original.hasAttribute('disabled') ||
+                          style.pointerEvents === 'none';
+
         const probablyClickable = (() => {
             if (['button', 'select', 'summary', 'area', 'input'].includes(tag)) return true;
             if (tag === 'a' && original.hasAttribute('href')) return true;
@@ -127,7 +132,7 @@ const parse = () => {
             return style.cursor === 'pointer';
         })();
 
-        const isClickable = !parentIsClickable && probablyClickable;
+        const isClickable = !parentIsClickable && probablyClickable && !isDisabled;
 
         /* ---------- assign unique semantic IDs ---------------------------- */
         let thisName = '';
@@ -153,10 +158,10 @@ const parse = () => {
         /* ---------- INPUT / SELECT / FORM specifics ------------------------------ */
         if (tag === 'input' || tag === 'textarea' || original.hasAttribute('contenteditable')) {
             const t = original.getAttribute('type') || 'text';
-            const isDisabled = original.disabled || original.readOnly;
+            const inputIsDisabled = original.disabled || original.readOnly;
 
-            // Only assign new semantic ID if not already set by clickable processing
-            if (!thisName) {
+            // Only assign semantic ID if not disabled AND not already set by clickable processing
+            if (!inputIsDisabled && !thisName) {
                 const base = slug((original.getAttribute('placeholder') ||
                                original.getAttribute('name') ||
                                original.value || '').trim() ||
@@ -164,48 +169,59 @@ const parse = () => {
                 thisName = uniqueName(parentName ? `${parentName}.${base}` : base);
             }
 
-            // Capture all input states
-            clone.setAttribute('data-semantic-id', thisName);
-            clone.setAttribute('data-value', original.value || '');
-            clone.setAttribute('data-input-disabled', isDisabled ? 'true' : 'false');
-            clone.setAttribute('data-can-edit', !isDisabled && !original.readOnly ? 'true' : 'false');
+            // Only add semantic ID and input attributes if not disabled
+            if (!inputIsDisabled && thisName) {
+                clone.setAttribute('data-semantic-id', thisName);
+                clone.setAttribute('data-value', original.value || '');
+                clone.setAttribute('data-input-disabled', 'false');
+                clone.setAttribute('data-can-edit', !original.readOnly ? 'true' : 'false');
+                original.setAttribute('data-semantic-id', thisName);
+            }
 
 
-            if (t === 'number') {
+            if (!inputIsDisabled && thisName && t === 'number') {
                 clone.setAttribute('data-numeric-value', original.valueAsNumber || '');
             }
 
             // Selection state
-            if (original.selectionStart !== undefined) {
+            if (!inputIsDisabled && thisName && original.selectionStart !== undefined) {
                 clone.setAttribute('data-selection-start', original.selectionStart);
                 clone.setAttribute('data-selection-end', original.selectionEnd);
             }
-
-            original.setAttribute('data-semantic-id', thisName);
         }
 
         if (tag === 'select') {
-            clone.setAttribute('data-semantic-id', thisName);
-            clone.setAttribute('data-value', original.value);
-            clone.setAttribute('data-selected-index', original.selectedIndex);
-            clone.setAttribute('data-has-multiple', original.multiple ? 'true' : 'false');
+            const selectIsDisabled = original.disabled || original.hasAttribute('disabled');
 
-            const selectedOptions = Array.from(original.selectedOptions)
-                .map(opt => opt.value)
-                .join(',');
-            clone.setAttribute('data-selected-values', selectedOptions);
+            // Only assign semantic ID if not disabled
+            if (!selectIsDisabled) {
+                if (!thisName) {
+                    const base = slug((original.getAttribute('name') || tag));
+                    thisName = uniqueName(parentName ? `${parentName}.${base}` : base);
+                }
 
-            original.setAttribute('data-semantic-id', thisName);
+                clone.setAttribute('data-semantic-id', thisName);
+                clone.setAttribute('data-value', original.value);
+                clone.setAttribute('data-selected-index', original.selectedIndex);
+                clone.setAttribute('data-has-multiple', original.multiple ? 'true' : 'false');
 
-            for (const opt of original.querySelectorAll('option')) {
-                const o = document.createElement('option');
-                o.textContent = opt.textContent.trim();
-                o.setAttribute('value', opt.value);
-                o.setAttribute('data-selected', opt.selected ? 'true' : 'false');
-                const optName = uniqueName(`${thisName}.${slug(opt.textContent)}`);
-                o.setAttribute('data-semantic-id', optName);
-                opt.setAttribute('data-semantic-id', optName);
-                clone.appendChild(o);
+                const selectedOptions = Array.from(original.selectedOptions)
+                    .map(opt => opt.value)
+                    .join(',');
+                clone.setAttribute('data-selected-values', selectedOptions);
+
+                original.setAttribute('data-semantic-id', thisName);
+
+                for (const opt of original.querySelectorAll('option')) {
+                    const o = document.createElement('option');
+                    o.textContent = opt.textContent.trim();
+                    o.setAttribute('value', opt.value);
+                    o.setAttribute('data-selected', opt.selected ? 'true' : 'false');
+                    const optName = uniqueName(`${thisName}.${slug(opt.textContent)}`);
+                    o.setAttribute('data-semantic-id', optName);
+                    opt.setAttribute('data-semantic-id', optName);
+                    clone.appendChild(o);
+                }
             }
         }
 
