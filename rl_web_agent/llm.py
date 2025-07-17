@@ -76,9 +76,9 @@ class BedrockProvider(LLMProvider):
 
     async def _get_client(self):
         """Get or create Bedrock client"""
-        if self.client is None:
-            self.session = aioboto3.Session()
-            self.client = self.session.client("bedrock-runtime", region_name=self.region)
+        # Always create a fresh session and client to avoid reuse issues
+        self.session = aioboto3.Session()
+        self.client = self.session.client("bedrock-runtime", region_name=self.region)
         return self.client
 
     async def complete(self, messages: list[dict[str, str]], **kwargs) -> str:

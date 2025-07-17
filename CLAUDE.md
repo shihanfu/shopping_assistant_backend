@@ -141,6 +141,9 @@ observation = await env.observation()
 - Type hints required, especially for `DictConfig` parameters
 - Follow PEP 8 with 4-space indentation
 - Use `pathlib.Path` instead of `os.path`
+- **NEVER use dict.get()** - Always use direct key access (dict["key"]) to fail fast
+- **No graceful error handling for missing keys** - Let KeyErrors happen to catch bugs early
+- **Fail fast approach** - Don't hide missing keys or data structure issues
 
 ### Configuration Patterns
 - Always use `@hydra.main()` decorator for entry points
