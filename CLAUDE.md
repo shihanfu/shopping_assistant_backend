@@ -138,22 +138,15 @@ observation = await env.observation()
 
 ### Code Style
 - Use async/await for all browser operations
-- Type hints required, especially for `DictConfig` parameters
 - Follow PEP 8 with 4-space indentation
 - Use `pathlib.Path` instead of `os.path`
 - **NEVER use dict.get()** - Always use direct key access (dict["key"]) to fail fast
 - **No graceful error handling for missing keys** - Let KeyErrors happen to catch bugs early
 - **Fail fast approach** - Don't hide missing keys or data structure issues
 
-### Configuration Patterns
-- Always use `@hydra.main()` decorator for entry points
-- Validate configs with dataclasses in separate module (not implemented yet)
-- Document config options in YAML comments, not separate files
-
 ### Error Handling
 - Wrap browser operations in try/finally blocks
 - Use structured logging with semantic context
-- Graceful fallbacks for missing elements or network issues
 - Return error information in step() observations
 
 ## Development Notes
