@@ -22,7 +22,7 @@ logger = logging.getLogger("ProxyServerAsync")
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
 
-SERVER_LISTEN_PORT = 9090
+SERVER_LISTEN_PORT = 8000
 CHUNK_SIZE = 1024 * 1024  # 1MB chunks for responses
 
 # ─── CONNECTION STORAGE ──────────────────────────────────────────────────────
@@ -273,7 +273,7 @@ async def forward_request(conn: Connection):
 
                 # Store response status and headers as list of tuples
                 conn.response_status = resp.status_code
-                conn.response_headers = list(resp.headers.items())
+                conn.response_headers = list(resp.headers.multi_items())
                 logger.debug(f"Response headers from target: {conn.response_headers}")
 
                 # Read response data exactly as received (no auto-decompression)

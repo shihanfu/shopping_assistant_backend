@@ -62,7 +62,7 @@ class SimpleHTTPProxy:
         if headers:
             # Case-insensitive header lookup
             rewrite_header = ""
-            for key, value in headers.items():
+            for key, value in headers.multi_items():
                 if key.lower() == "x-target-host-rewrite":
                     rewrite_header = value.strip()
                     break
@@ -175,7 +175,7 @@ class SimpleHTTPProxy:
 
             # Prepare response headers (remove hop-by-hop headers)
             response_headers = {}
-            for k, v in response.headers.items():
+            for k, v in response.headers.multi_items():
                 if k.lower() not in ("connection", "proxy-connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade"):
                     response_headers[k] = v
 

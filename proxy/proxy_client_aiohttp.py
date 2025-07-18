@@ -140,7 +140,7 @@ class HTTPXProxyClient:
                         break
             else:
                 # headers is dict (fallback)
-                for key, value in headers.items():
+                for key, value in headers.multi_items():
                     if key.lower() == "x-target-host-rewrite":
                         rewrite_header = value.strip()
                         break
@@ -362,7 +362,7 @@ class HTTPXProxyClient:
         method = request.method
         path = str(request.url)
         logger.info(f"=== New {method} request: {path} ===")
-        logger.debug(f"Request headers: {list(request.headers.items())}")
+        logger.debug(f"Request headers: {list(request.headers.multi_items())}")
 
         try:
             # Parse proxy request
@@ -379,7 +379,7 @@ class HTTPXProxyClient:
                 logger.debug(f"Direct request - original target_host: {original_target_host}, path: {request_path}")
 
             # Apply host rewriting - convert headers to list of tuples
-            request_headers = list(request.headers.items())
+            request_headers = list(request.headers.multi_items())
             target_host = self._rewrite_target_host(original_target_host, request_headers)
 
             # Read request body
@@ -487,7 +487,7 @@ class HTTPXProxyClient:
             else:
                 # Fallback for dict format
                 filtered_headers = {}
-                for k, v in response_headers.items():
+                for k, v in response_headers.multi_items():
                     if k.lower() not in ("content-length", "transfer-encoding", "x-more-chunks", "x-chunk-index"):
                         filtered_headers[k] = v
 

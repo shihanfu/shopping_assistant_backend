@@ -55,7 +55,7 @@ class DirectProxy:
         if headers:
             # Case-insensitive header lookup
             rewrite_header = ""
-            for key, value in headers.items():
+            for key, value in headers.multi_items():
                 if key.lower() == "x-target-host-rewrite":
                     rewrite_header = value.strip()
                     break
@@ -137,7 +137,7 @@ class DirectProxy:
             # Prepare headers (exclude proxy-specific and hop-by-hop headers)
             forward_headers = {}
             excluded_headers = []
-            for key, value in request.headers.items():
+            for key, value in request.headers.multi_items():
                 key_lower = key.lower()
                 if key_lower not in ("connection", "proxy-connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade", "content-length", "x-target-host-rewrite", "remote-addr"):
                     forward_headers[key] = value

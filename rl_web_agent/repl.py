@@ -249,7 +249,7 @@ class WebAgentREPL:
         # This way cache and session data both persist
         self.temp_user_data_dir = str(session_dir)
 
-        self.env = WebAgentEnv(self.cfg.environment)
+        self.env = WebAgentEnv(self.cfg.environment, self.cfg)
 
         # Use fake task config from main.py
         fake_task = {"sites": ["shopping"], "task_id": 1, "require_login": False, "start_url": "http://metis.lti.cs.cmu.edu:7770", "intent": "Interactive testing session"}
