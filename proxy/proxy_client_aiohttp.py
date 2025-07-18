@@ -362,7 +362,7 @@ class HTTPXProxyClient:
         method = request.method
         path = str(request.url)
         logger.info(f"=== New {method} request: {path} ===")
-        logger.debug(f"Request headers: {list(request.headers.multi_items())}")
+        logger.debug(f"Request headers: {request.headers.to_wsgi_list()}")
 
         try:
             # Parse proxy request
@@ -379,7 +379,8 @@ class HTTPXProxyClient:
                 logger.debug(f"Direct request - original target_host: {original_target_host}, path: {request_path}")
 
             # Apply host rewriting - convert headers to list of tuples
-            request_headers = list(request.headers.multi_items())
+            request_headers = request.headers.to_wsgi_list()
+            logger.debug(f"Request headers: {request_headers}")
             target_host = self._rewrite_target_host(original_target_host, request_headers)
 
             # Read request body
