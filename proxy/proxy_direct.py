@@ -134,12 +134,18 @@ class DirectProxy:
             body = await request.get_data()
             logger.debug(f"Request body: {len(body) if body else 0} bytes")
 
-            # Prepare headers - pass through everything except proxy-specific
+            # Prepare headers (exclude proxy-specific and hop-by-hop headers)
             forward_headers = {}
+            excluded_headers = []
             for key, value in request.headers.items():
-                # Only remove the dynamic rewrite header, keep everything else including accept-encoding
-                if key.lower() != "x-target-host-rewrite":
+                key_lower = key.lower()
+                if key_lower not in ("connection", "proxy-connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade", "content-length", "x-target-host-rewrite", "remote-addr"):
                     forward_headers[key] = value
+                else:
+                    excluded_headers.append(key)
+
+            logger.debug(f"Forwarding {len(forward_headers)} headers (excluded: {excluded_headers})")
+            logger.debug(f"Headers: {forward_headers}")
 
             # Update Host header if host was rewritten
             if original_target_host != target_host:
@@ -147,7 +153,9 @@ class DirectProxy:
                 logger.debug(f"Host rewrite: {target_host} (preserving original Host: {original_target_host})")
 
             # Add accept-encoding: identity if not present (matching proxy server behavior)
-            if "accept-encoding" not in forward_headers:
+            # Check case-insensitively for accept-encoding header
+            has_accept_encoding = any(key.lower() == "accept-encoding" for key in forward_headers.keys())
+            if not has_accept_encoding:
                 forward_headers["accept-encoding"] = "identity"
 
             # Build target URL
@@ -166,7 +174,7 @@ class DirectProxy:
                 ) as resp:
                     forward_elapsed = time.time() - request_start
                     logger.info(f"← {resp.status_code} ({forward_elapsed:.3f}s)")
-                    logger.debug(f"Response headers from target: {dict(resp.headers)}")
+                    logger.debug(f"Response headers from target: {resp.headers.multi_items()}")
 
                     # Read response data exactly as received (no auto-decompression)
                     logger.debug("Reading response body from target server...")
@@ -176,7 +184,7 @@ class DirectProxy:
                     logger.info(f"=== Request completed: {len(response_data)} bytes (total time: {total_elapsed:.3f}s) ===")
 
                     # Return response as-is (no header filtering)
-                    return Response(response=response_data, status=resp.status_code, headers=dict(resp.headers))
+                    return Response(response=response_data, status=resp.status_code, headers=resp.headers.multi_items())
 
         except Exception as exc:
             elapsed = time.time() - request_start
