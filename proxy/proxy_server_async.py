@@ -34,12 +34,12 @@ class Connection:
     target_host: str
     method: str
     path: str
-    headers: dict[str, str]
+    headers: list[tuple[str, str]]  # Changed to list of tuples for duplicate header support
     body_size: int
     body_chunks: list[bytes] = field(default_factory=list)
     body_complete: bool = False
     response_data: bytes | None = None
-    response_headers: dict[str, str] | None = None
+    response_headers: list[tuple[str, str]] | None = None  # Changed to list of tuples
     response_status: int | None = None
     response_complete: bool = False
     created_at: float = field(default_factory=time.time)
@@ -176,6 +176,7 @@ async def handle_response_request():
             if chunk_index == 0:
                 # First chunk: return metadata only
                 body_size = len(conn.response_data) if conn.response_data else 0
+                # Keep headers as list of tuples to preserve duplicates
                 metadata = {"status": conn.response_status, "headers": conn.response_headers, "body_size": body_size, "has_body": bool(conn.response_data)}
 
                 logger.info(f"Sending response metadata for connection {connection_id}: status={conn.response_status}, body_size={body_size}")
@@ -235,20 +236,23 @@ async def forward_request(conn: Connection):
 
         logger.info(f"Target URL: {conn.method} {target_url}")
 
-        # Prepare headers (exclude proxy-specific headers)
-        headers = {}
+        # Prepare headers (exclude proxy-specific headers) - handle list of tuples
+        headers = []
         excluded_headers = []
-        for k, v in conn.headers.items():
+        for k, v in conn.headers:
             k_lower = k.lower()
             if k_lower not in ("connection", "proxy-connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade", "content-length"):
-                headers[k] = v
+                headers.append((k, v))
             else:
                 excluded_headers.append(k)
 
         logger.debug(f"Forwarding {len(headers)} headers (excluded: {excluded_headers})")
         logger.debug(f"Headers: {headers}")
-        if "accept-encoding" not in headers:
-            headers["accept-encoding"] = "identity"
+
+        # Check if accept-encoding exists (case-insensitive)
+        has_accept_encoding = any(k.lower() == "accept-encoding" for k, v in headers)
+        if not has_accept_encoding:
+            headers.append(("accept-encoding", "identity"))
 
         # Forward request to target server using httpx (raw bytes passthrough)
         logger.info("Sending request to target server...")
@@ -267,9 +271,9 @@ async def forward_request(conn: Connection):
                 forward_elapsed = time.time() - forward_start
                 logger.info(f"Target server responded: {resp.status_code} (took {forward_elapsed:.3f}s)")
 
-                # Store response status and headers
+                # Store response status and headers as list of tuples
                 conn.response_status = resp.status_code
-                conn.response_headers = dict(resp.headers)
+                conn.response_headers = list(resp.headers.items())
                 logger.debug(f"Response headers from target: {conn.response_headers}")
 
                 # Read response data exactly as received (no auto-decompression)
@@ -288,7 +292,7 @@ async def forward_request(conn: Connection):
 
         # Store error response
         conn.response_status = 502
-        conn.response_headers = {"Content-Type": "text/plain"}
+        conn.response_headers = [("Content-Type", "text/plain")]
         conn.response_data = f"Proxy error: {exc}".encode()
         conn.response_complete = True
 

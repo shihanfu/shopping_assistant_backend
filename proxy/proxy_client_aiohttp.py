@@ -126,16 +126,24 @@ class HTTPXProxyClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.stop()
 
-    def _rewrite_target_host(self, original_host: str, headers: dict = None) -> str:
+    def _rewrite_target_host(self, original_host: str, headers=None) -> str:
         """Rewrite target host based on configuration and request headers"""
         # Check for dynamic rewrite in request header first
         if headers:
-            # Case-insensitive header lookup
+            # Case-insensitive header lookup - handle both dict and list formats
             rewrite_header = ""
-            for key, value in headers.items():
-                if key.lower() == "x-target-host-rewrite":
-                    rewrite_header = value.strip()
-                    break
+            if isinstance(headers, list):
+                # headers is list of tuples
+                for key, value in headers:
+                    if key.lower() == "x-target-host-rewrite":
+                        rewrite_header = value.strip()
+                        break
+            else:
+                # headers is dict (fallback)
+                for key, value in headers.items():
+                    if key.lower() == "x-target-host-rewrite":
+                        rewrite_header = value.strip()
+                        break
 
             if rewrite_header:
                 # Parse header format: "original_host=new_host" or "original_host:port=new_host:port"
@@ -262,7 +270,7 @@ class HTTPXProxyClient:
             return last_response
         raise Exception("Unexpected error in retry logic")
 
-    async def _create_connection(self, target_host: str, method: str, path: str, headers: dict, body_size: int) -> str:
+    async def _create_connection(self, target_host: str, method: str, path: str, headers: list, body_size: int) -> str:
         """Create a new connection on the proxy server"""
         connection_id = str(uuid.uuid4())
         logger.info(f"Creating connection {connection_id} for {method} {target_host}{path}")
@@ -354,7 +362,7 @@ class HTTPXProxyClient:
         method = request.method
         path = str(request.url)
         logger.info(f"=== New {method} request: {path} ===")
-        logger.debug(f"Request headers: {dict(request.headers)}")
+        logger.debug(f"Request headers: {list(request.headers.items())}")
 
         try:
             # Parse proxy request
@@ -370,8 +378,9 @@ class HTTPXProxyClient:
                 original_target_host = request.headers.get("Host", "")
                 logger.debug(f"Direct request - original target_host: {original_target_host}, path: {request_path}")
 
-            # Apply host rewriting
-            target_host = self._rewrite_target_host(original_target_host, dict(request.headers))
+            # Apply host rewriting - convert headers to list of tuples
+            request_headers = list(request.headers.items())
+            target_host = self._rewrite_target_host(original_target_host, request_headers)
 
             # Read request body
             body = await request.get_data()
@@ -379,7 +388,7 @@ class HTTPXProxyClient:
             logger.info(f"Request body size: {body_size} bytes")
 
             # Handle request with unified chunking approach
-            response = await self._handle_request(target_host, request_path, method, dict(request.headers), body, original_target_host)
+            response = await self._handle_request(target_host, request_path, method, request_headers, body, original_target_host)
 
             elapsed = time.time() - request_start
             logger.info(f"=== Request completed in {elapsed:.3f}s ===")
@@ -393,31 +402,37 @@ class HTTPXProxyClient:
             error_message = f"Proxy client error: {exc}"
             return Response(response=error_message, status=502, headers={"Content-Type": "text/plain", "Connection": "close"})
 
-    async def _handle_request(self, target_host: str, path: str, method: str, headers: dict, body: bytes, original_host: str = None) -> Response:
+    async def _handle_request(self, target_host: str, path: str, method: str, headers: list, body: bytes, original_host: str = None) -> Response:
         """Handle all requests with unified chunking approach"""
         logger.info(f"Processing unified request for {target_host}{path}")
         if original_host and original_host != target_host:
             logger.info(f"Original host: {original_host} → Rewritten to: {target_host}")
 
         try:
-            # Update headers to preserve original Host header for the target server
-            updated_headers = headers.copy()
+            # Headers are already list of tuples, filter out proxy-specific headers
+            header_list = []
+            for key, value in headers:
+                # Remove proxy-specific headers before forwarding (case-insensitive)
+                if key.lower() not in ("x-target-host-rewrite", "remote-addr"):
+                    header_list.append((key, value))
+                else:
+                    logger.debug(f"Removed proxy-specific header: {key}")
+
+            # Update Host header if host was rewritten
             if original_host:
-                updated_headers["Host"] = original_host
+                # Replace existing Host header or add new one
+                host_updated = False
+                for i, (key, value) in enumerate(header_list):
+                    if key.lower() == "host":
+                        header_list[i] = (key, original_host)
+                        host_updated = True
+                        break
+                if not host_updated:
+                    header_list.append(("Host", original_host))
                 logger.debug(f"Preserving original Host header: {original_host}")
 
-            # Remove proxy-specific headers before forwarding (case-insensitive)
-            headers_to_remove = []
-            for key in updated_headers.keys():
-                if key.lower() in ("x-target-host-rewrite", "remote-addr"):
-                    headers_to_remove.append(key)
-
-            for key in headers_to_remove:
-                updated_headers.pop(key)
-                logger.debug(f"Removed proxy-specific header: {key}")
-
             # Create connection
-            connection_id = await self._create_connection(target_host, method, path, updated_headers, len(body) if body else 0)
+            connection_id = await self._create_connection(target_host, method, path, header_list, len(body) if body else 0)
         except Exception as exc:
             logger.error(f"Failed to create connection: {exc}")
             raise Exception(f"Connection creation failed: {exc}") from exc
@@ -462,11 +477,19 @@ class HTTPXProxyClient:
             return Response(response=error_msg, status=502, headers={"Content-Type": "text/plain", "Connection": "close"})
 
         try:
-            # Prepare response headers (filter out proxy-specific headers)
-            filtered_headers = {}
-            for k, v in response_headers.items():
-                if k.lower() not in ("content-length", "transfer-encoding", "x-more-chunks", "x-chunk-index"):
-                    filtered_headers[k] = v
+            # Prepare response headers (filter out proxy-specific headers) - handle list format
+            if isinstance(response_headers, list):
+                # Headers are list of tuples from server
+                filtered_headers = []
+                for k, v in response_headers:
+                    if k.lower() not in ("content-length", "transfer-encoding", "x-more-chunks", "x-chunk-index"):
+                        filtered_headers.append((k, v))
+            else:
+                # Fallback for dict format
+                filtered_headers = {}
+                for k, v in response_headers.items():
+                    if k.lower() not in ("content-length", "transfer-encoding", "x-more-chunks", "x-chunk-index"):
+                        filtered_headers[k] = v
 
             # Get and collect response body if it exists
             response_body = b""
