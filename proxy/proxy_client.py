@@ -18,7 +18,7 @@ CLIENT_LISTEN_PORT = 8080
 API_GATEWAY_URL = "https://3he3rx88gl.execute-api.us-east-1.amazonaws.com"
 CHUNK_SIZE = 1024 * 1024  # 1MB chunks
 
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("proxy-client-httpx")
 
 
