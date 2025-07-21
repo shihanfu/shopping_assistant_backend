@@ -15,6 +15,36 @@ from rl_web_agent.env import WebAgentEnv
 from rl_web_agent.llm import create_llm_client
 
 
+class Colors:
+    """ANSI color codes for terminal output"""
+
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
+    MAGENTA = "\033[95m"
+    CYAN = "\033[96m"
+    RED = "\033[91m"
+
+    @classmethod
+    def highlight_action(cls, text: str) -> str:
+        """Highlight action text with colors"""
+        return f"{cls.BOLD}{cls.CYAN}🤖 ACTION: {cls.YELLOW}{text}{cls.RESET}"
+
+    @classmethod
+    def highlight_step(cls, step: int, text: str) -> str:
+        """Highlight step information"""
+        return f"{cls.BOLD}{cls.BLUE}📍 Step {step}: {cls.RESET}{text}"
+
+    @classmethod
+    def highlight_result(cls, text: str, success: bool = True) -> str:
+        """Highlight result text"""
+        color = cls.GREEN if success else cls.RED
+        icon = "✅" if success else "❌"
+        return f"{cls.BOLD}{color}{icon} {text}{cls.RESET}"
+
+
 class WebAgent:
     """
     LLM-powered web agent that can complete tasks using chain-of-thought reasoning.
@@ -278,6 +308,13 @@ class WebAgent:
         max_steps = max_steps or self.max_steps
         step_count = 0
 
+        # Highlight task start
+        print("\n" + "=" * 60)
+        print(f"{Colors.BOLD}{Colors.MAGENTA}🚀 STARTING WEB AGENT TASK{Colors.RESET}")
+        print(f"{Colors.BOLD}🎯 Objective:{Colors.RESET} {objective}")
+        print(f"{Colors.BOLD}📏 Max Steps:{Colors.RESET} {max_steps}")
+        print("=" * 60 + "\n")
+
         self.logger.info(f"Starting task: {objective}")
 
         # Initialize conversation with system message and objective
@@ -306,10 +343,12 @@ class WebAgent:
         try:
             for step in range(max_steps):
                 step_count += 1
+                print(Colors.highlight_step(step_count, "Processing observation"))
                 self.logger.info(f"Step {step_count}: Processing observation")
 
                 # Check if task is already terminated
                 if observation.get("terminated", False):
+                    print(Colors.highlight_result("Task already terminated by environment"))
                     self.logger.info("Task already terminated by environment")
                     break
 
@@ -318,6 +357,7 @@ class WebAgent:
                 self.conversation_history.append({"role": "user", "content": observation_text})
 
                 # Get LLM response with full conversation context
+                print(Colors.highlight_step(step_count, "Querying LLM with conversation context"))
                 self.logger.info(f"Step {step_count}: Querying LLM with conversation context")
                 response = await self.llm_provider.complete(self.conversation_history)
 
@@ -327,10 +367,13 @@ class WebAgent:
                 try:
                     action_json = self._parse_action(response)
                 except Exception as e:
+                    print(Colors.highlight_result(f"Error parsing action from response: {e}", success=False))
                     self.logger.error(f"Error parsing action from response: {e}")
                     self.logger.error(f"Full LLM response: {response}")
                     raise
 
+                # Highlight the action being executed
+                print(Colors.highlight_action(action_json))
                 self.logger.info(f"Step {step_count}: Executing action: {action_json}")
 
                 # Add action as assistant message to conversation
@@ -346,6 +389,7 @@ class WebAgent:
 
                 # Check if task is terminated after step
                 if observation["terminated"]:
+                    print(Colors.highlight_result("Task terminated"))
                     self.logger.info("Task terminated")
                     break
 
@@ -360,11 +404,29 @@ class WebAgent:
 
             result = {"success": terminated and final_score > 0.0, "score": final_score, "answer": final_answer, "steps": step_count, "terminated": terminated, "max_steps_reached": step_count >= max_steps}
 
+            # Highlight final results
+            success = result["success"]
+            print("\n" + "=" * 60)
+            print(Colors.highlight_result(f"TASK COMPLETED - {'SUCCESS' if success else 'FAILED'}", success=success))
+            print(f"{Colors.BOLD}📊 Final Score:{Colors.RESET} {final_score}")
+            print(f"{Colors.BOLD}📝 Final Answer:{Colors.RESET} {final_answer}")
+            print(f"{Colors.BOLD}👣 Steps Taken:{Colors.RESET} {step_count}")
+            print(f"{Colors.BOLD}🏁 Terminated:{Colors.RESET} {terminated}")
+            if step_count >= max_steps:
+                print(f"{Colors.YELLOW}⚠️  Max steps reached{Colors.RESET}")
+            print("=" * 60 + "\n")
+
             self.logger.info(f"Task completed: {result}")
             return result
 
         except Exception as e:
             import traceback
+
+            # Highlight error
+            print("\n" + "=" * 60)
+            print(Colors.highlight_result("TASK FAILED WITH ERROR", success=False))
+            print(f"{Colors.RED}💥 Error: {str(e)}{Colors.RESET}")
+            print("=" * 60 + "\n")
 
             self.logger.error(f"Error during task execution: {e}")
             self.logger.error(f"Full traceback: {traceback.format_exc()}")

@@ -145,7 +145,10 @@ observation = await env.observation()
 - **Fail fast approach** - Don't hide missing keys or data structure issues
 
 ### Error Handling
-- Wrap browser operations in try/finally blocks
+- **FAIL FAST** - No try-catch blocks unless absolutely necessary (e.g., auto retry for LLM API calls to avoid rate limits)
+- **NEVER use getattr() or dict.get()** - Always use direct key access to fail fast for missing keys
+- **No graceful error handling for missing keys** - Let KeyErrors happen to catch bugs early
+- Wrap browser operations in try/finally blocks only when needed
 - Use structured logging with semantic context
 - Return error information in step() observations
 

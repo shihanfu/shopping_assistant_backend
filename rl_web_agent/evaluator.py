@@ -2,6 +2,7 @@
 
 import collections
 import html
+import logging
 import urllib
 from typing import Any
 
@@ -46,22 +47,40 @@ class StringEvaluator:
 
     @staticmethod
     @beartype
-    def fuzzy_match(ref, pred, intent):
-        # Simplified fuzzy match - just return exact match for now
+    async def fuzzy_match(ref, pred, intent, config=None):
+        # Use our in-house LLM for fuzzy matching if config available
+        if config:
+            try:
+                from rl_web_agent.helper_functions import get_helper_functions
+
+                helper = get_helper_functions(config)
+                return await helper.llm_fuzzy_match(pred, ref, intent)
+            except Exception:
+                pass
+        # Fallback to exact match
         return 1.0 if pred.lower().strip() == ref.lower().strip() else 0.0
 
     @staticmethod
     @beartype
-    def ua_match(ref, pred, intent):
-        # Simplified UA match - just return exact match for now
+    async def ua_match(ref, pred, intent, config=None):
+        # Use our in-house LLM for UA matching if config available
+        if config:
+            try:
+                from rl_web_agent.helper_functions import get_helper_functions
+
+                helper = get_helper_functions(config)
+                return await helper.llm_ua_match(pred, ref, intent)
+            except Exception:
+                pass
+        # Fallback to exact match
         return 1.0 if pred.lower().strip() == ref.lower().strip() else 0.0
 
-    async def evaluate(self, answer: str, config: dict[str, Any]) -> float:
+    async def evaluate(self, answer: str, task_config: dict[str, Any], env_config=None) -> float:
         """Evaluate answer against reference answers in config"""
         pred = self.clean_answer(answer)
 
         score = 1.0
-        for approach, value in config["eval"]["reference_answers"].items():
+        for approach, value in task_config["eval"]["reference_answers"].items():
             match approach:
                 case "exact_match":
                     score *= self.exact_match(ref=value, pred=pred)
@@ -75,7 +94,7 @@ class StringEvaluator:
                             tokenize=(len(value) == 1),
                         )
                 case "fuzzy_match":
-                    intent = config["intent"]
+                    intent = task_config["intent"]
                     if value == "N/A":
                         # if the instruction only asks the model to generate N/A when encountering an unachievable task
                         # without more concrete reasons
@@ -83,15 +102,11 @@ class StringEvaluator:
                         # if the instruction also asks the model to generate the reason why the task is unachievable
                         # this should be the default as it will prevent false positive N/A`
                         if score != 1:
-                            score = 1.0 * self.ua_match(
-                                intent=config["intent"],
-                                ref=config["eval"]["string_note"],
-                                pred=pred,
-                            )
+                            score = 1.0 * await self.ua_match(intent=task_config["intent"], ref=task_config["eval"]["string_note"], pred=pred, config=env_config)
                     else:
                         assert isinstance(value, list)
                         for reference in value:
-                            score *= self.fuzzy_match(ref=reference, pred=pred, intent=intent)
+                            score *= await self.fuzzy_match(ref=reference, pred=pred, intent=intent, config=env_config)
         return score
 
 
@@ -147,9 +162,12 @@ class URLEvaluator:
 class HTMLContentEvaluator:
     """Check whether the contents appear in the page"""
 
-    async def evaluate(self, page, config: dict[str, Any]) -> float:
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+
+    async def evaluate(self, page, task_config: dict[str, Any], env_config=None, extra_headers=None) -> float:
         """Evaluate page content against required content"""
-        targets = config["eval"]["program_html"]
+        targets = task_config["eval"]["program_html"]
 
         score = 1.0
         for target in targets:
@@ -157,10 +175,25 @@ class HTMLContentEvaluator:
             if target_url.startswith("func"):
                 func = target_url.split("func:")[1]
                 func = func.replace("__last_url__", page.url)
-                # Import helper functions when needed
+                # Use our helper functions
                 if "shopping_get_latest_order_url" in func:
-                    pass
-                target_url = eval(func)
+                    from rl_web_agent.helper_functions import get_helper_functions
+
+                    helper = get_helper_functions(env_config, extra_headers)
+                    target_url = helper.shopping_get_latest_order_url()
+                else:
+                    # For other functions, evaluate with our helper context
+                    from rl_web_agent.helper_functions import get_helper_functions
+
+                    helper = get_helper_functions(env_config, extra_headers)
+                    # Create a context with our helper functions available
+                    func_context = {
+                        "shopping_get_latest_order_url": helper.shopping_get_latest_order_url,
+                        "shopping_get_sku_latest_review_author": helper.shopping_get_sku_latest_review_author,
+                        "shopping_get_sku_latest_review_rating": helper.shopping_get_sku_latest_review_rating,
+                        "reddit_get_post_url": helper.reddit_get_post_url,
+                    }
+                    target_url = eval(func, func_context)
 
             locator = target["locator"]  # js element locator
 
@@ -175,26 +208,35 @@ class HTMLContentEvaluator:
             # use JS to select the element
             elif locator.startswith("document.") or locator.startswith("[...document."):
                 if "prep_actions" in target:
-                    try:
-                        for prep_action in target["prep_actions"]:
-                            await page.evaluate(f"() => {prep_action}")
-                    except Exception:
-                        pass
-                try:
-                    selected_element = str(await page.evaluate(f"() => {locator}"))
-                    if not selected_element:
-                        selected_element = ""
-                except Exception:
-                    # the page is wrong, return empty
-                    selected_element = ""
+                    for prep_action in target["prep_actions"]:
+                        await page.evaluate(f"() => {prep_action}")
+                selected_element = str(await page.evaluate(f"() => {locator}"))
             # run program to call API
             elif locator.startswith("func:"):  # a helper function
                 func = locator.split("func:")[1]
                 func = func.replace("__page__", "page")
-                # Import helper functions when needed
-                if "shopping_get_" in func or "reddit_get_" in func or "gitlab_get_" in func:
-                    pass
-                selected_element = eval(func)
+                # Use our helper functions
+                from rl_web_agent.helper_functions import get_helper_functions
+
+                helper = get_helper_functions(env_config, extra_headers)
+                # Create a context with our helper functions and page available
+                func_context = {
+                    "page": page,
+                    "shopping_get_sku_latest_review_author": helper.shopping_get_sku_latest_review_author,
+                    "shopping_get_sku_latest_review_rating": helper.shopping_get_sku_latest_review_rating,
+                    "reddit_get_post_url": helper.reddit_get_post_url,
+                    "gitlab_get_project_member_role": helper.gitlab_get_project_member_role,
+                }
+                # Handle async functions specially
+                if "gitlab_get_project_member_role" in func:
+                    # This is an async function, need to await it
+                    import re
+
+                    match = re.search(r'gitlab_get_project_member_role\(page,\s*["\']([^"\']+)["\']\)', func)
+                    account_name = match.group(1)
+                    selected_element = await helper.gitlab_get_project_member_role(page, account_name)
+                else:
+                    selected_element = eval(func, func_context)
             else:
                 raise ValueError(f"Unknown locator: {locator}")
 
@@ -233,26 +275,38 @@ async def evaluate_task(answer: str, page, config: dict[str, Any]) -> float:
     Args:
         answer: The model's final answer
         page: Playwright page object
-        config: Task configuration dict with eval section
+        config: Either task config dict OR evaluation context with task_config and env_config
 
     Returns:
         float: Score between 0.0 and 1.0
     """
-    eval_types = config["eval"]["eval_types"]
+    # Handle both old and new config formats
+    if "task_config" in config and "env_config" in config:
+        # New format with separate task and environment configs
+        task_config = config["task_config"]
+        env_config = config["env_config"]
+        extra_headers = config.get("extra_headers", {})
+    else:
+        # Old format - config is the task config directly
+        task_config = config
+        env_config = None
+        extra_headers = {}
+
+    eval_types = task_config["eval"]["eval_types"]
     total_score = 1.0
 
     for eval_type in eval_types:
         if eval_type == "string_match":
             evaluator = StringEvaluator()
-            score = await evaluator.evaluate(answer, config)
+            score = await evaluator.evaluate(answer, task_config, env_config)
             total_score *= score
         elif eval_type == "url_match":
             evaluator = URLEvaluator()
-            score = await evaluator.evaluate(page.url, config)
+            score = await evaluator.evaluate(page.url, task_config)
             total_score *= score
         elif eval_type == "program_html":
             evaluator = HTMLContentEvaluator()
-            score = await evaluator.evaluate(page, config)
+            score = await evaluator.evaluate(page, task_config, env_config, extra_headers)
             total_score *= score
         else:
             raise ValueError(f"Unknown eval_type: {eval_type}")

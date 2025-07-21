@@ -38,9 +38,8 @@ async def test_web_agent():
         logger.info(f"  User data: {temp_user_data_dir}")
         logger.info(f"  Cache: {temp_cache_dir}")
 
-        # Load configuration - find project root
-        project_root = Path(__file__).parent.parent.parent
-        config_dir = str(project_root / "rl_web_agent" / "conf")
+        # Load configuration - use relative path from project root
+        config_dir = "../../rl_web_agent/conf"  # Relative path from entrypoints directory
         config_name = "config"
 
         # Initialize Hydra
@@ -55,6 +54,7 @@ async def test_web_agent():
         cfg.environment.browser.cache_dir = temp_cache_dir
 
         # Load test task
+        project_root = Path(__file__).parent.parent.parent
         test_task_path = project_root / "thirdparty" / "webarena" / "config_files" / "506.json"
         with open(test_task_path) as f:
             test_task = json.load(f)

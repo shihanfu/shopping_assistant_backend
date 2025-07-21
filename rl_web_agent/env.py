@@ -165,12 +165,18 @@ class WebAgentEnv:
 
         # Add host rewrite headers for each site
         extra_headers = {}
+        rewrite_mappings = []
         for site_name, hostname in self.config.sites.items():
             if site_name in self.server_ips:
                 server_ip = self.server_ips[site_name]
-                rewrite_header = f"{hostname}={server_ip}:80"
-                extra_headers["x-target-host-rewrite"] = rewrite_header
-                self.logger.info(f"Added host rewrite for {site_name}: {rewrite_header}")
+                rewrite_mapping = f"{hostname}={server_ip}:80"
+                rewrite_mappings.append(rewrite_mapping)
+                self.logger.info(f"Added host rewrite for {site_name}: {rewrite_mapping}")
+
+        if rewrite_mappings:
+            # Use the first mapping as primary header (most common case is single site)
+            extra_headers["x-target-host-rewrite"] = rewrite_mappings[0]
+            # For multiple sites, we may need additional headers but this handles the common case
 
         if extra_headers:
             context_options["extra_http_headers"] = extra_headers
@@ -735,28 +741,11 @@ class WebAgentEnv:
 
         # Add evaluation information
         if self.task_config and "eval" in self.task_config:
-            try:
-                score = await self.evaluate_task()
-                content["score"] = score
+            score = await self.evaluate_task()
+            content["score"] = score
 
-                # Determine if terminated - always True if model called terminate
-                if self.model_answer is not None:
-                    # Model called terminate - always mark as terminated
-                    content["terminated"] = True
-                else:
-                    # Model hasn't terminated yet
-                    eval_types = self.task_config["eval"]["eval_types"]
-                    if "string_match" in eval_types:
-                        # For string match: not terminated until model stops
-                        content["terminated"] = False
-                    else:
-                        # For other evaluations: terminated if score = 1.0
-                        content["terminated"] = score == 1.0
-
-            except Exception as e:
-                self.logger.warning(f"Evaluation failed: {e}")
-                content["score"] = 0.0
-                content["terminated"] = False
+            # Always terminate if model called terminate
+            content["terminated"] = self.model_answer is not None
         else:
             content["score"] = 0.0
             content["terminated"] = False
@@ -781,7 +770,13 @@ class WebAgentEnv:
         from rl_web_agent.evaluator import evaluate_task
 
         # Run evaluation using our simplified evaluator
-        score = await evaluate_task(answer=self.model_answer or "", page=self.page, config=self.task_config)
+        # Pass both task config and environment config with extra headers
+        evaluation_context = {
+            "task_config": self.task_config,
+            "env_config": self.config,  # This has accounts, sites, etc.
+            "extra_headers": getattr(self.context, "_options", {}).get("extra_http_headers", {}),
+        }
+        score = await evaluate_task(answer=self.model_answer or "", page=self.page, config=evaluation_context)
 
         self.logger.info(f"Task evaluation score: {score}")
         return score
