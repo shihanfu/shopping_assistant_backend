@@ -142,7 +142,7 @@ class WebAgentEnv:
         # Placeholder IPs for testing, should come from server launch
         if self.task_config and "sites" in self.task_config:
             for site in self.task_config["sites"]:
-                self.server_ips[site] = "10.58.210.60"  # This should come from actual server launch
+                self.server_ips[site] = "10.2.7.243"  # This should come from actual server launch
 
         # Get launch options from config and convert to dict
         launch_options = OmegaConf.to_container(self.config.browser.launch_options, resolve=True)
@@ -736,7 +736,7 @@ class WebAgentEnv:
         # Add evaluation information
         if self.task_config and "eval" in self.task_config:
             try:
-                score = self.evaluate_task()
+                score = await self.evaluate_task()
                 content["score"] = score
 
                 # Determine if terminated - always True if model called terminate
@@ -763,7 +763,7 @@ class WebAgentEnv:
 
         return content
 
-    def evaluate_task(self) -> float:
+    async def evaluate_task(self) -> float:
         """
         Evaluate current task using self.task_config.
 
@@ -781,7 +781,7 @@ class WebAgentEnv:
         from rl_web_agent.evaluator import evaluate_task
 
         # Run evaluation using our simplified evaluator
-        score = evaluate_task(answer=self.model_answer or "", page=self.page, config=self.task_config)
+        score = await evaluate_task(answer=self.model_answer or "", page=self.page, config=self.task_config)
 
         self.logger.info(f"Task evaluation score: {score}")
         return score
