@@ -32,6 +32,9 @@ class WebAgent:
         self.logger = logging.getLogger(__name__)
         self.max_steps = 50  # Maximum number of actions to prevent infinite loops
 
+        # Conversation history - each user message is an observation, each assistant message is an action
+        self.conversation_history = []
+
         # Load prompt template
         prompt_path = Path(__file__).parent / "prompts" / "chain_of_thought.txt"
         with open(prompt_path) as f:
@@ -136,6 +139,44 @@ class WebAgent:
 
         return "\n".join(obs_parts) if obs_parts else "No interactive elements found on the page."
 
+    def _build_observation_message(self, observation: dict[str, Any]) -> str:
+        """
+        Build an observation message for the conversation context.
+
+        Args:
+            observation: Current page observation
+
+        Returns:
+            Formatted observation message
+        """
+        obs_parts = []
+
+        # Add current URL and tabs info
+        if observation.get("tabs"):
+            current_tab = next((tab for tab in observation["tabs"] if tab.get("is_active")), observation["tabs"][0])
+            obs_parts.append(f"CURRENT PAGE: {current_tab['url']}")
+            obs_parts.append(f"PAGE TITLE: {current_tab['title']}")
+
+            if len(observation["tabs"]) > 1:
+                obs_parts.append(f"OPEN TABS: {len(observation['tabs'])}")
+
+        # Add error information if present
+        if observation.get("error"):
+            obs_parts.append(f"ERROR: {observation['error']}")
+
+        # Add termination status
+        if observation.get("terminated"):
+            obs_parts.append("STATUS: Task terminated")
+            if observation.get("score") is not None:
+                obs_parts.append(f"SCORE: {observation['score']}")
+            if observation.get("model_answer"):
+                obs_parts.append(f"FINAL ANSWER: {observation['model_answer']}")
+
+        # Add interactive elements
+        obs_parts.append("\n" + self._build_observation_text(observation))
+
+        return "\n".join(obs_parts)
+
     def _extract_key_text(self, html_content: str) -> str:
         """Extract key visible text from HTML content."""
         # This is a simplified extraction
@@ -221,7 +262,7 @@ class WebAgent:
 
     async def run_task(self, env: WebAgentEnv, objective: str, max_steps: int = None) -> dict[str, Any]:
         """
-        Run a complete task using the web agent.
+        Run a complete task using the web agent with conversation context.
 
         Args:
             env: WebAgentEnv instance (already set up)
@@ -236,9 +277,28 @@ class WebAgent:
 
         max_steps = max_steps or self.max_steps
         step_count = 0
-        previous_action = "None"
 
         self.logger.info(f"Starting task: {objective}")
+
+        # Initialize conversation with system message and objective
+        self.conversation_history = [
+            {
+                "role": "system",
+                "content": f"You are a web automation agent. Your objective is: {objective}\n\n"
+                + "I will provide you with observations from a web page, and you must respond with JSON actions.\n"
+                + "Each of my messages contains the current state of the web page.\n"
+                + "Each of your responses should be a JSON action to execute.\n\n"
+                + "Available actions:\n"
+                + '- {"action": "click", "target": "element_id"}\n'
+                + '- {"action": "type", "target": "element_id", "text": "text to type", "enter": true/false}\n'
+                + '- {"action": "goto_url", "url": "https://example.com"}\n'
+                + '- {"action": "scroll", "direction": "up/down"}\n'
+                + '- {"action": "back"}\n'
+                + '- {"action": "forward"}\n'
+                + '- {"action": "terminate", "answer": "final answer"}\n\n'
+                + "Always respond with valid JSON.",
+            }
+        ]
 
         # Get initial observation
         observation = await env.observation()
@@ -253,26 +313,33 @@ class WebAgent:
                     self.logger.info("Task already terminated by environment")
                     break
 
-                # Create prompt
-                prompt = self._create_chain_of_thought_prompt(objective, observation, previous_action)
+                # Add observation as user message to conversation
+                observation_text = self._build_observation_message(observation)
+                self.conversation_history.append({"role": "user", "content": observation_text})
 
-                # Get LLM response
-                self.logger.info(f"Step {step_count}: Querying LLM")
-                messages = [{"role": "user", "content": prompt}]
-                response = await self.llm_provider.complete(messages)
+                # Get LLM response with full conversation context
+                self.logger.info(f"Step {step_count}: Querying LLM with conversation context")
+                response = await self.llm_provider.complete(self.conversation_history)
 
                 self.logger.info(f"LLM Response: {response[:200]}...")
 
-                # Parse and execute action
+                # Parse action from response
                 try:
                     action_json = self._parse_action(response)
                 except Exception as e:
                     self.logger.error(f"Error parsing action from response: {e}")
                     self.logger.error(f"Full LLM response: {response}")
                     raise
+
                 self.logger.info(f"Step {step_count}: Executing action: {action_json}")
 
-                previous_action = action_json
+                # Add action as assistant message to conversation
+                self.conversation_history.append(
+                    {
+                        "role": "assistant",
+                        "content": action_json,  # Store the action JSON as the assistant response
+                    }
+                )
 
                 # Execute action and get next observation
                 observation = await env.step(action_json)
@@ -314,7 +381,7 @@ class WebAgent:
         Returns:
             Dictionary with task results
         """
-        env = WebAgentEnv(env_config, None)  # No full config available in this context
+        env = WebAgentEnv(env_config)
 
         try:
             await env.setup(task_config)

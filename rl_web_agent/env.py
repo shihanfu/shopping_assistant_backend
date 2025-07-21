@@ -12,9 +12,8 @@ class WebAgentEnv:
     _shared_playwright: ClassVar[Playwright | None] = None
     _shared_playwright_users: ClassVar[int] = 0
 
-    def __init__(self, environment_config: DictConfig, full_config: DictConfig = None):
+    def __init__(self, environment_config: DictConfig):
         self.config = environment_config
-        self.full_config = full_config or environment_config  # Store full config for accounts access
         self.context_manager = None
         self.browser = None
         self.context = None
@@ -51,11 +50,11 @@ class WebAgentEnv:
 
     async def login_to_site(self, site_name: str) -> None:
         """Login to a specific site using hardcoded login logic"""
-        if not hasattr(self.full_config, "accounts") or site_name not in self.full_config.accounts:
+        if not hasattr(self.config, "accounts") or site_name not in self.config.accounts:
             self.logger.warning(f"No account configured for site: {site_name}")
             return
 
-        account = self.full_config.accounts[site_name]
+        account = self.config.accounts[site_name]
         username = account["username"]
         password = account["password"]
 
@@ -65,45 +64,45 @@ class WebAgentEnv:
         try:
             if site_name == "shopping":
                 login_url = f"http://{self.config.sites[site_name]}/customer/account/login/"
-                await login_page.goto(login_url, wait_until="domcontentloaded")
+                await login_page.goto(login_url, wait_until="networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
                 await login_page.get_by_label("Email", exact=True).fill(username)
                 await login_page.get_by_label("Password", exact=True).fill(password)
                 await asyncio.sleep(2)  # Additional wait for login to complete
                 await login_page.get_by_role("button", name="Sign In").click()
                 # Wait for navigation after login
-                await login_page.wait_for_load_state("networkidle", timeout=10000)
+                await login_page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
                 await asyncio.sleep(2)  # Additional wait for login to complete
 
             elif site_name == "reddit":
                 login_url = f"http://{self.config.sites[site_name]}/login"
-                await login_page.goto(login_url, wait_until="domcontentloaded")
+                await login_page.goto(login_url, wait_until="networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
                 await login_page.get_by_label("Username").fill(username)
                 await login_page.get_by_label("Password").fill(password)
                 await login_page.get_by_role("button", name="Log in").click()
                 # Wait for navigation after login
-                await login_page.wait_for_load_state("networkidle", timeout=10000)
+                await login_page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
                 await asyncio.sleep(2)  # Additional wait for login to complete
 
             elif site_name == "shopping_admin":
                 login_url = f"http://{self.config.sites[site_name]}"
-                await login_page.goto(login_url, wait_until="domcontentloaded")
+                await login_page.goto(login_url, wait_until="networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
                 await login_page.get_by_placeholder("user name").fill(username)
                 await login_page.get_by_placeholder("password").fill(password)
                 await login_page.get_by_role("button", name="Sign in").click()
                 # Wait for navigation after login
-                await login_page.wait_for_load_state("networkidle", timeout=10000)
+                await login_page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
                 await asyncio.sleep(2)  # Additional wait for login to complete
 
             elif site_name == "gitlab":
                 login_url = f"http://{self.config.sites[site_name]}/users/sign_in"
-                await login_page.goto(login_url, wait_until="domcontentloaded")
+                await login_page.goto(login_url, wait_until="networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
                 await login_page.get_by_test_id("username-field").click()
                 await login_page.get_by_test_id("username-field").fill(username)
                 await login_page.get_by_test_id("username-field").press("Tab")
                 await login_page.get_by_test_id("password-field").fill(password)
                 await login_page.get_by_test_id("sign-in-button").click()
                 # Wait for navigation after login
-                await login_page.wait_for_load_state("networkidle", timeout=10000)
+                await login_page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
                 await asyncio.sleep(2)  # Additional wait for login to complete
 
             else:

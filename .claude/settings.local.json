@@ -9,7 +9,12 @@
       "WebFetch(domain:platform.openai.com)",
       "Bash(python test_evaluation.py)",
       "Bash(python test_evaluation_simple.py)",
-      "Bash(python test_agent.py)"
+      "Bash(python test_agent.py)",
+      "Bash(python -c \"from omegaconf import DictConfig, OmegaConf; from rl_web_agent.env import WebAgentEnv; cfg = OmegaConf.load(''rl_web_agent/conf/config.yaml''); print(''Config loaded successfully''); print(''Accounts:'', cfg.environment.accounts); env = WebAgentEnv(cfg.environment); print(''WebAgentEnv created successfully'')\")",
+      "Bash(mv /Users/yuxuanlu/code/rl_web_agent/test_agent.py /Users/yuxuanlu/code/rl_web_agent/test_agent.py.bak)",
+      "Bash(python -m rl_web_agent.test_agent)",
+      "Bash(mv /Users/yuxuanlu/code/rl_web_agent/rl_web_agent/repl.py /Users/yuxuanlu/code/rl_web_agent/rl_web_agent/entrypoints/repl.py)",
+      "Bash(python -m rl_web_agent.entrypoints.agent)"
     ],
     "deny": []
   }

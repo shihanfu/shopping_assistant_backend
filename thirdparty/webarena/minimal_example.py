@@ -9,7 +9,7 @@ import time
 SLEEP = 1.5
 # set the URLs of each website, we use the demo sites as an example
 os.environ["SHOPPING"] = "http://metis.lti.cs.cmu.edu:7770"
-os.environ["SHOPPING_ADMIN"] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:7780/admin"
+os.environ["SHOPPING_ADMIN"] = "http://metis.lti.cs.cmu.edu:7780/admin"
 os.environ["REDDIT"] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:9999"
 os.environ["GITLAB"] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8023"
 os.environ["MAP"] = "http://ec2-3-131-244-37.us-east-2.compute.amazonaws.com:3000"

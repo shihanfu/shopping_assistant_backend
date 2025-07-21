@@ -80,6 +80,7 @@ IMPORTANT ELEMENT ATTRIBUTES:
 - Use semantic IDs (data-semantic-id) as targets for all actions
 - Clickable elements are listed in CLICKABLE ELEMENTS section
 - Input elements are listed in INPUT ELEMENTS section with their types and current values
+- For menus items, try to hover it first to see if there is a dropdown menu.
 
 CHAIN OF THOUGHT INSTRUCTIONS:
 1. Analyze the current page and objective carefully

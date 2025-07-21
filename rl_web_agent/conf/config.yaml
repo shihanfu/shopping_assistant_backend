@@ -81,12 +81,27 @@ environment:
     # Sleep configuration (in seconds)
     sleep_after_action: 0.5      # Sleep time after each action (helps with page stability)
 
+  # Account credentials for WebArena sites
+  accounts:
+    shopping:
+      username: "emma.lopez@gmail.com"
+      password: "Password.123"
+    shopping_admin:
+      username: "admin"
+      password: "admin1234"
+    reddit:
+      username: "MarvelsGrantMan136"
+      password: "test1234"
+    gitlab:
+      username: "byteblaze"
+      password: "hello1234"
+
 # ============================================================================
 # LLM CONFIGURATION
 # ============================================================================
 # Large Language Model provider settings
 llm:
-  provider: "openai"     # Provider: "openai" or "bedrock"
+  provider: "bedrock"     # Provider: "openai" or "bedrock"
   max_concurrent: 5      # Maximum concurrent API calls
 
   # Generation parameters (applied to all providers)
@@ -112,23 +127,6 @@ llm:
     model_id: "anthropic.claude-3-5-sonnet-20240620-v1:0"  # Bedrock model ID
     timeout: 60                                      # Request timeout in seconds
 
-# ============================================================================
-# AUTHENTICATION CONFIGURATION
-# ============================================================================
-# Account credentials for WebArena sites
-accounts:
-  shopping:
-    username: "emma.lopez@gmail.com"
-    password: "Password.123"
-  shopping_admin:
-    username: "admin"
-    password: "admin1234"
-  reddit:
-    username: "MarvelsGrantMan136"
-    password: "test1234"
-  gitlab:
-    username: "byteblaze"
-    password: "hello1234"
 
 # ============================================================================
 # GENERAL SETTINGS
