@@ -65,6 +65,9 @@ class WebAgent:
         # Conversation history - each user message is an observation, each assistant message is an action
         self.conversation_history = []
 
+        # Action history for tracking previous actions
+        self.action_history = []
+
         # Load prompt template
         prompt_path = Path(__file__).parent / "prompts" / "chain_of_thought.txt"
         with open(prompt_path) as f:
@@ -339,7 +342,7 @@ class WebAgent:
                 from rl_web_agent.prompts import load_prompt
 
                 current_url = observation.get("tabs", [{}])[0].get("url", "Unknown")
-                formatted_observation = self._format_observation_for_llm(observation)
+                formatted_observation = self._build_observation_message(observation)
 
                 chain_of_thought_prompt = load_prompt("chain_of_thought").format(url=current_url, objective=objective, observation=formatted_observation)
 

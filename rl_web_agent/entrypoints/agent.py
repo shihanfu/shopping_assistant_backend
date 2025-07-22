@@ -25,8 +25,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-async def test_web_agent():
-    """Test the WebAgent with a simple task."""
+async def run_agent_task():
+    """Run the WebAgent until task completion (terminated=True)."""
     temp_user_data_dir = None
     temp_cache_dir = None
 
@@ -68,24 +68,32 @@ async def test_web_agent():
             await env.setup(test_task)
             logger.info(f"Environment setup complete for task: {test_task['intent']}")
 
-            # Run the task with conversation-based approach
-            logger.info("Starting agent task execution with conversation context")
-            result = await agent.run_task(env, test_task["intent"], max_steps=10)
+            # Run the task until completion (terminated=True)
+            logger.info("Starting agent task execution - will run until terminated")
+            result = await agent.run_task(env, test_task["intent"], max_steps=50)
 
-            # Print results
-            logger.info(f"Task completed with result: {result}")
+            # Print final results
+            logger.info("=" * 60)
+            logger.info("TASK COMPLETION SUMMARY")
+            logger.info("=" * 60)
+            logger.info(f"Success: {result['success']}")
+            logger.info(f"Score: {result['score']}")
+            logger.info(f"Answer: {result['answer']}")
+            logger.info(f"Steps: {result['steps']}")
+            logger.info(f"Terminated: {result['terminated']}")
+            logger.info(f"Max steps reached: {result['max_steps_reached']}")
+            logger.info("=" * 60)
 
-            # Log conversation history for debugging
-            logger.info(f"Conversation had {len(agent.conversation_history)} messages")
-            for i, msg in enumerate(agent.conversation_history):
-                role = msg["role"]
-                content = msg["content"]
-                logger.info(f"Message {i}: {role}: {content}")
-
-            logger.info("Test completed successfully!")
+            if result["terminated"]:
+                if result["success"]:
+                    logger.info("✅ Task completed successfully!")
+                else:
+                    logger.info("❌ Task terminated but failed")
+            else:
+                logger.info("⚠️  Task stopped without termination (max steps reached)")
 
         except Exception as e:
-            logger.error(f"Test failed: {e}")
+            logger.error(f"Task execution failed: {e}")
             raise
         finally:
             # Cleanup environment
@@ -93,7 +101,7 @@ async def test_web_agent():
             logger.info("Environment closed")
 
     except Exception as e:
-        logger.error(f"Test execution failed: {e}")
+        logger.error(f"Agent execution failed: {e}")
         raise
     finally:
         # Clean up temporary directories
@@ -125,11 +133,11 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
 
     try:
-        asyncio.run(test_web_agent())
+        asyncio.run(run_agent_task())
     except KeyboardInterrupt:
-        logger.info("Test interrupted by user")
+        logger.info("Agent interrupted by user")
     except Exception as e:
-        logger.error(f"Test execution failed: {e}")
+        logger.error(f"Agent execution failed: {e}")
         sys.exit(1)
 
 
