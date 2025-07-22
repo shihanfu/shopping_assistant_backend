@@ -166,23 +166,21 @@ class HTMLContentEvaluator:
         self.logger = logging.getLogger(__name__)
 
     async def evaluate(self, page, task_config: dict[str, Any], env_config=None, extra_headers=None) -> float:
-        """Evaluate page content against required content"""
+        """Evaluate page content against required content using a temporary page"""
         targets = task_config["eval"]["program_html"]
 
-        score = 1.0
-        for target in targets:
-            target_url = target["url"]  # which url to check
-            if target_url.startswith("func"):
-                func = target_url.split("func:")[1]
-                func = func.replace("__last_url__", page.url)
-                # Use our helper functions
-                if "shopping_get_latest_order_url" in func:
-                    from rl_web_agent.helper_functions import get_helper_functions
+        # Create temporary page from the browser context
+        browser_context = page.context
+        temp_page = await browser_context.new_page()
 
-                    helper = get_helper_functions(env_config, extra_headers)
-                    target_url = helper.shopping_get_latest_order_url()
-                else:
-                    # For other functions, evaluate with our helper context
+        try:
+            score = 1.0
+            for target in targets:
+                target_url = target["url"]  # which url to check
+                if target_url.startswith("func"):
+                    func = target_url.split("func:")[1]
+                    func = func.replace("__last_url__", page.url)
+                    # Use our helper functions
                     from rl_web_agent.helper_functions import get_helper_functions
 
                     helper = get_helper_functions(env_config, extra_headers)
@@ -195,76 +193,77 @@ class HTMLContentEvaluator:
                     }
                     target_url = eval(func, func_context)
 
-            locator = target["locator"]  # js element locator
+                # Navigate temporary page to target URL
+                await temp_page.goto(target_url, wait_until="domcontentloaded")
 
-            # navigate to that url
-            if target_url != "last":
-                await page.goto(target_url)
-                await page.wait_for_load_state("networkidle")
+                locator = target["locator"]  # js element locator
 
-            # empty, use the full page
-            if not locator.strip():
-                selected_element = await page.content()
-            # use JS to select the element
-            elif locator.startswith("document.") or locator.startswith("[...document."):
-                if "prep_actions" in target:
-                    for prep_action in target["prep_actions"]:
-                        await page.evaluate(f"() => {prep_action}")
-                selected_element = str(await page.evaluate(f"() => {locator}"))
-            # run program to call API
-            elif locator.startswith("func:"):  # a helper function
-                func = locator.split("func:")[1]
-                func = func.replace("__page__", "page")
-                # Use our helper functions
-                from rl_web_agent.helper_functions import get_helper_functions
+                # empty, use the full page
+                if not locator.strip():
+                    selected_element = await temp_page.content()
+                # use JS to select the element
+                elif locator.startswith("document.") or locator.startswith("[...document."):
+                    if "prep_actions" in target:
+                        for prep_action in target["prep_actions"]:
+                            await temp_page.evaluate(f"() => {prep_action}")
+                    selected_element = str(await temp_page.evaluate(f"() => {locator}"))
+                # run program to call API
+                elif locator.startswith("func:"):  # a helper function
+                    func = locator.split("func:")[1]
+                    func = func.replace("__page__", "temp_page")
+                    # Use our helper functions
+                    from rl_web_agent.helper_functions import get_helper_functions
 
-                helper = get_helper_functions(env_config, extra_headers)
-                # Create a context with our helper functions and page available
-                func_context = {
-                    "page": page,
-                    "shopping_get_sku_latest_review_author": helper.shopping_get_sku_latest_review_author,
-                    "shopping_get_sku_latest_review_rating": helper.shopping_get_sku_latest_review_rating,
-                    "reddit_get_post_url": helper.reddit_get_post_url,
-                    "gitlab_get_project_member_role": helper.gitlab_get_project_member_role,
-                }
-                # Handle async functions specially
-                if "gitlab_get_project_member_role" in func:
-                    # This is an async function, need to await it
-                    import re
+                    helper = get_helper_functions(env_config, extra_headers)
+                    # Create a context with our helper functions and temp page available
+                    func_context = {
+                        "temp_page": temp_page,
+                        "shopping_get_sku_latest_review_author": helper.shopping_get_sku_latest_review_author,
+                        "shopping_get_sku_latest_review_rating": helper.shopping_get_sku_latest_review_rating,
+                        "reddit_get_post_url": helper.reddit_get_post_url,
+                        "gitlab_get_project_member_role": helper.gitlab_get_project_member_role,
+                    }
+                    # Handle async functions specially
+                    if "gitlab_get_project_member_role" in func:
+                        # This is an async function, need to await it
+                        import re
 
-                    match = re.search(r'gitlab_get_project_member_role\(page,\s*["\']([^"\']+)["\']\)', func)
-                    account_name = match.group(1)
-                    selected_element = await helper.gitlab_get_project_member_role(page, account_name)
+                        match = re.search(r'gitlab_get_project_member_role\(temp_page,\s*["\']([^"\']+)["\']\)', func)
+                        account_name = match.group(1)
+                        selected_element = await helper.gitlab_get_project_member_role(temp_page, account_name)
+                    else:
+                        selected_element = eval(func, func_context)
                 else:
-                    selected_element = eval(func, func_context)
-            else:
-                raise ValueError(f"Unknown locator: {locator}")
+                    raise ValueError(f"Unknown locator: {locator}")
 
-            selected_element = html.unescape(selected_element)
+                selected_element = html.unescape(selected_element)
 
-            if "exact_match" in target["required_contents"]:
-                required_contents = target["required_contents"]["exact_match"]
-                cur_score = StringEvaluator.exact_match(ref=required_contents, pred=selected_element)
-                score *= float(cur_score)
-            elif "must_include" in target["required_contents"]:
-                required_contents = target["required_contents"]["must_include"]
-                assert isinstance(required_contents, list)
-                for content in required_contents:
-                    content_or = content.split(" |OR| ")
-                    cur_score = any(
-                        [
-                            StringEvaluator.must_include(
-                                ref=content,
-                                pred=selected_element,
-                                tokenize=False,
-                            )
-                            for content in content_or
-                        ]
-                    )
+                if "exact_match" in target["required_contents"]:
+                    required_contents = target["required_contents"]["exact_match"]
+                    cur_score = StringEvaluator.exact_match(ref=required_contents, pred=selected_element)
                     score *= float(cur_score)
-            else:
-                raise ValueError(f"Unknown required_contents: {target['required_contents'].keys()}")
-        return score
+                elif "must_include" in target["required_contents"]:
+                    required_contents = target["required_contents"]["must_include"]
+                    assert isinstance(required_contents, list)
+                    for content in required_contents:
+                        content_or = content.split(" |OR| ")
+                        cur_score = any(
+                            [
+                                StringEvaluator.must_include(
+                                    ref=content,
+                                    pred=selected_element,
+                                    tokenize=False,
+                                )
+                                for content in content_or
+                            ]
+                        )
+                        score *= float(cur_score)
+                else:
+                    raise ValueError(f"Unknown required_contents: {target['required_contents'].keys()}")
+            return score
+        finally:
+            # Always close the temporary page
+            await temp_page.close()
 
 
 async def evaluate_task(answer: str, page, config: dict[str, Any]) -> float:

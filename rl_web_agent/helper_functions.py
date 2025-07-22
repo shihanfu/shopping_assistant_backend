@@ -41,6 +41,10 @@ class HelperFunctions:
         headers = {"content-type": "application/json"}
         headers.update(self.extra_headers)
 
+        self.logger.info(f"Shopping auth request - URL: {shopping_url}/rest/default/V1/integration/admin/token")
+        self.logger.info(f"Shopping auth request - Headers: {headers}")
+        self.logger.info(f"Shopping auth request - Proxies: {self.proxies}")
+
         response = requests.post(
             url=f"{shopping_url}/rest/default/V1/integration/admin/token",
             headers=headers,
@@ -53,6 +57,7 @@ class HelperFunctions:
             proxies=self.proxies,
             timeout=30,
         )
+        self.logger.info(f"Shopping auth response status: {response.status_code}")
         response.raise_for_status()
         token: str = response.json()
         return token
@@ -72,6 +77,8 @@ class HelperFunctions:
             "searchCriteria[sortOrders][0][field]": "created_at",
             "searchCriteria[sortOrders][0][direction]": "DESC",
             "searchCriteria[pageSize]": "1",
+            "searchCriteria[filter_groups][0][filters][0][field]": "customer_id",
+            "searchCriteria[filter_groups][0][filters][0][value]": "27",
         }
 
         response = requests.get(f"{shopping_url}/rest/V1/orders", params=params, headers=headers, proxies=self.proxies, timeout=30)
@@ -177,21 +184,12 @@ class HelperFunctions:
         llm_client = await create_llm_client(self.config.llm)
 
         # Construct evaluation prompt
-        messages = [
-            {"role": "system", "content": "You are a helpful assistant that evaluates student answers."},
-            {
-                "role": "user",
-                "content": f"""Help a teacher grade a student's answer. Determine if the student's answer is semantically equivalent to the reference answer, allowing for different phrasing.
+        # Load prompt from file
+        from rl_web_agent.prompts import load_prompt
 
-Question: {question}
-Reference answer: {reference}
-Student answer: {pred}
+        user_prompt = load_prompt("fuzzy_match_evaluator").format(question=question, reference=reference, pred=pred)
 
-Note: 'N/A' means 'not achievable'
-
-Respond with exactly one word: correct, incorrect, or partially_correct""",
-            },
-        ]
+        messages = [{"role": "user", "content": user_prompt}]
 
         response = await llm_client.complete(messages)
         response_lower = response.lower().strip()
@@ -211,21 +209,12 @@ Respond with exactly one word: correct, incorrect, or partially_correct""",
         # Create LLM client using our config
         llm_client = await create_llm_client(self.config.llm)
 
-        messages = [
-            {"role": "system", "content": "You are a helpful assistant that evaluates task completion explanations."},
-            {
-                "role": "user",
-                "content": f"""A task was determined to be unachievable. Compare the actual reason with the reported reason.
+        # Load prompt from file
+        from rl_web_agent.prompts import load_prompt
 
-Task: {question}
-Actual unachievable reason: {reference}
-Reported unachievable reason: {pred}
+        user_prompt = load_prompt("ua_match_evaluator").format(question=question, reference=reference, pred=pred)
 
-Determine if the reported reason aligns with the actual reason, even if implicitly.
-
-Respond with exactly one word: same or different""",
-            },
-        ]
+        messages = [{"role": "user", "content": user_prompt}]
 
         response = await llm_client.complete(messages)
         response_lower = response.lower().strip()

@@ -151,8 +151,9 @@ class ActionParser:
 class WebAgentREPL:
     """Interactive REPL for the Web Agent"""
 
-    def __init__(self, cfg: DictConfig):
+    def __init__(self, cfg: DictConfig, task_config: dict = None):
         self.cfg = cfg
+        self.task_config = task_config
         self.env = None
         self.parser = ActionParser()
         self.logger = logging.getLogger(__name__)
@@ -171,6 +172,17 @@ class WebAgentREPL:
         """Start the REPL session"""
         print("🤖 RL Web Agent REPL")
         print("=" * 50)
+
+        # Show task config status
+        if self.task_config:
+            print(f"📋 Task: {self.task_config.get('task_id', 'unknown')} - {self.task_config.get('intent', 'no description')}")
+            print(f"🎯 Start URL: {self.task_config.get('start_url', 'not specified')}")
+            print("⚖️  Evaluation: Enabled")
+        else:
+            print("📋 Task: Default REPL session (no task config)")
+            print("⚖️  Evaluation: Disabled")
+        print("")
+
         print("Human-friendly action format:")
         print("  click(element_id)")
         print("  type(element_id, text, enter=true)")
@@ -251,10 +263,15 @@ class WebAgentREPL:
 
         self.env = WebAgentEnv(self.cfg.environment)
 
-        # Use fake task config from main.py
-        fake_task = {"sites": ["shopping"], "task_id": 1, "require_login": False, "start_url": "http://metis.lti.cs.cmu.edu:7770", "intent": "Interactive testing session"}
+        # Use provided task config or fake task config from main.py
+        if self.task_config:
+            task_to_use = self.task_config
+            self.logger.info(f"Using provided task config: {task_to_use.get('task_id', 'unknown')}")
+        else:
+            task_to_use = {"sites": ["shopping"], "task_id": 1, "require_login": False, "start_url": "http://metis.lti.cs.cmu.edu:7770", "intent": "Interactive testing session"}
+            self.logger.info("Using default fake task config for REPL")
 
-        obs = await self.env.setup(fake_task)
+        obs = await self.env.setup(task_to_use)
         return obs
 
     async def _reset_env(self):
@@ -301,6 +318,18 @@ Special Commands:
   reset                               - Reset environment to start state
   help                                - Show this help
   exit                                - Exit REPL
+
+Usage:
+  python -m rl_web_agent.entrypoints.repl                            - Start REPL without task config
+  python -m rl_web_agent.entrypoints.repl task_config=path/to.json   - Start REPL with task config
+  python -m rl_web_agent.entrypoints.repl task-config=path/to.json   - Alternative hyphenated format
+
+Evaluation Results:
+  ⚖️ EVALUATING | Score: X.XXX       - Task in progress
+  🏁 TERMINATED | Score: X.XXX       - Task completed/terminated
+  ✅ Task completed successfully!     - Perfect score (≥1.0)
+  ⚠️  Task partially completed       - Partial score (>0.0)
+  ❌ Task failed or incomplete        - Zero score
         """
         )
 
@@ -417,9 +446,7 @@ Special Commands:
                     status = " ".join(status_icons)
                     self._safe_print(f"  {i:2d}. {elem_id} [{elem_type}] {status}")
                     if value:
-                        # Truncate long values to prevent blocking
-                        safe_value = value[:30] + ("..." if len(value) > 30 else "")
-                        self._safe_print(f"      Value: '{safe_value}'")
+                        self._safe_print(f"      Value: '{value}'")
                 self._safe_print("")
 
             # Tabs
@@ -428,9 +455,33 @@ Special Commands:
                 self._safe_print("-" * 40)
                 for tab in obs["tabs"]:
                     active = "🟢 ACTIVE" if tab.get("is_active") else "⚪ inactive"
-                    tab_title = tab.get("title", "Untitled")[:40]
+                    tab_title = tab.get("title", "Untitled")
                     self._safe_print(f"  {tab.get('id'):2d}. {active} - {tab_title}")
                 self._safe_print("")
+
+            # Evaluation results if available
+            if "score" in obs:
+                score = obs["score"]
+                terminated = obs.get("terminated", False)
+
+                if terminated:
+                    status_icon = "🏁" if score > 0.0 else "❌"
+                    status_text = "TERMINATED"
+                else:
+                    status_icon = "⚖️"
+                    status_text = "EVALUATING"
+
+                self._safe_print(f"{status_icon} Evaluation: {status_text} | Score: {score:.3f}")
+
+                if terminated:
+                    if score >= 1.0:
+                        self._safe_print("✅ Task completed successfully!")
+                    elif score > 0.0:
+                        self._safe_print("⚠️  Task partially completed")
+                    else:
+                        self._safe_print("❌ Task failed or incomplete")
+            else:
+                self._safe_print("⚖️ Evaluation: Unavailable (no task config loaded)")
 
             self._safe_print("=" * 80)
 
@@ -438,8 +489,7 @@ Special Commands:
             self._safe_print(f"❌ Error getting observation: {e}")
             import traceback
 
-            # Truncate traceback to prevent blocking
-            tb_lines = traceback.format_exc().split("\n")[:10]
+            tb_lines = traceback.format_exc().split("\n")
             self._safe_print(f"Error details: {' '.join(tb_lines)}")
 
     async def _execute_action(self, command: str):
@@ -476,13 +526,42 @@ Special Commands:
 FAKE_TASK_CONFIG = {"sites": ["shopping"], "task_id": 1, "require_login": False, "start_url": "http://metis.lti.cs.cmu.edu:7770", "intent": "Interactive REPL session"}
 
 
-@hydra.main(version_base=None, config_path="conf", config_name="config")
+def load_task_config(task_config_path: str) -> dict:
+    """Load task config from JSON file"""
+    path = Path(task_config_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Task config file not found: {task_config_path}")
+
+    with open(path) as f:
+        return json.load(f)
+
+
+@hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     """Main entry point for the REPL"""
     logging.basicConfig(level=cfg.log_level)
 
+    # Check if task_config is provided via Hydra config override (support both formats)
+    task_config = None
+    task_config_path = None
+
+    # Check for underscore version first
+    if hasattr(cfg, "task_config") and cfg.task_config:
+        task_config_path = cfg.task_config
+    # Check for hyphen version as alternative
+    elif hasattr(cfg, "task-config") and getattr(cfg, "task-config"):
+        task_config_path = getattr(cfg, "task-config")
+
+    if task_config_path:
+        try:
+            task_config = load_task_config(task_config_path)
+            print(f"📋 Loaded task config: {task_config.get('task_id', 'unknown')} - {task_config.get('intent', 'no description')}")
+        except Exception as e:
+            print(f"❌ Error loading task config: {e}")
+            sys.exit(1)
+
     # Create and run REPL
-    repl = WebAgentREPL(cfg)
+    repl = WebAgentREPL(cfg, task_config)
 
     try:
         asyncio.run(repl.start())

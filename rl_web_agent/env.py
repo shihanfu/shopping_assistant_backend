@@ -24,6 +24,7 @@ class WebAgentEnv:
         self.task_config: dict | None = None
         self.server_ips: dict[str, str] = {}  # Mapping of site name to server IP
         self.model_answer: str | None = None  # Model's final answer/response
+        self.extra_headers: dict[str, str] = {}  # Host rewrite headers for proxy
 
     @classmethod
     async def _ensure_playwright(cls) -> Playwright:
@@ -142,7 +143,7 @@ class WebAgentEnv:
         # Placeholder IPs for testing, should come from server launch
         if self.task_config and "sites" in self.task_config:
             for site in self.task_config["sites"]:
-                self.server_ips[site] = "10.2.7.243"  # This should come from actual server launch
+                self.server_ips[site] = "10.2.1.203"  # This should come from actual server launch
 
         # Get launch options from config and convert to dict
         launch_options = OmegaConf.to_container(self.config.browser.launch_options, resolve=True)
@@ -177,6 +178,9 @@ class WebAgentEnv:
             # Use the first mapping as primary header (most common case is single site)
             extra_headers["x-target-host-rewrite"] = rewrite_mappings[0]
             # For multiple sites, we may need additional headers but this handles the common case
+
+        # Store extra headers for later use in evaluation
+        self.extra_headers = extra_headers
 
         if extra_headers:
             context_options["extra_http_headers"] = extra_headers
@@ -774,7 +778,7 @@ class WebAgentEnv:
         evaluation_context = {
             "task_config": self.task_config,
             "env_config": self.config,  # This has accounts, sites, etc.
-            "extra_headers": getattr(self.context, "_options", {}).get("extra_http_headers", {}),
+            "extra_headers": self.extra_headers,
         }
         score = await evaluate_task(answer=self.model_answer or "", page=self.page, config=evaluation_context)
 

@@ -3,7 +3,6 @@ You are an autonomous intelligent agent tasked with navigating a web browser to 
 CURRENT STATE:
 URL: {url}
 OBJECTIVE: {objective}
-PREVIOUS ACTION: {previous_action}
 
 AVAILABLE ACTIONS (JSON format):
 

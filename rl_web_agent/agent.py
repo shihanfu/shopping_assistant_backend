@@ -317,25 +317,8 @@ class WebAgent:
 
         self.logger.info(f"Starting task: {objective}")
 
-        # Initialize conversation with system message and objective
-        self.conversation_history = [
-            {
-                "role": "system",
-                "content": f"You are a web automation agent. Your objective is: {objective}\n\n"
-                + "I will provide you with observations from a web page, and you must respond with JSON actions.\n"
-                + "Each of my messages contains the current state of the web page.\n"
-                + "Each of your responses should be a JSON action to execute.\n\n"
-                + "Available actions:\n"
-                + '- {"action": "click", "target": "element_id"}\n'
-                + '- {"action": "type", "target": "element_id", "text": "text to type", "enter": true/false}\n'
-                + '- {"action": "goto_url", "url": "https://example.com"}\n'
-                + '- {"action": "scroll", "direction": "up/down"}\n'
-                + '- {"action": "back"}\n'
-                + '- {"action": "forward"}\n'
-                + '- {"action": "terminate", "answer": "final answer"}\n\n'
-                + "Always respond with valid JSON.",
-            }
-        ]
+        # Initialize conversation history
+        self.conversation_history = []
 
         # Get initial observation
         observation = await env.observation()
@@ -352,16 +335,22 @@ class WebAgent:
                     self.logger.info("Task already terminated by environment")
                     break
 
-                # Add observation as user message to conversation
-                observation_text = self._build_observation_message(observation)
-                self.conversation_history.append({"role": "user", "content": observation_text})
+                # Build chain of thought prompt with current observation
+                from rl_web_agent.prompts import load_prompt
+
+                current_url = observation.get("tabs", [{}])[0].get("url", "Unknown")
+                formatted_observation = self._format_observation_for_llm(observation)
+
+                chain_of_thought_prompt = load_prompt("chain_of_thought").format(url=current_url, objective=objective, observation=formatted_observation)
+
+                self.conversation_history.append({"role": "user", "content": chain_of_thought_prompt})
 
                 # Get LLM response with full conversation context
                 print(Colors.highlight_step(step_count, "Querying LLM with conversation context"))
                 self.logger.info(f"Step {step_count}: Querying LLM with conversation context")
                 response = await self.llm_provider.complete(self.conversation_history)
 
-                self.logger.info(f"LLM Response: {response[:200]}...")
+                self.logger.info(f"LLM Response: {response}")
 
                 # Parse action from response
                 try:
@@ -376,13 +365,16 @@ class WebAgent:
                 print(Colors.highlight_action(action_json))
                 self.logger.info(f"Step {step_count}: Executing action: {action_json}")
 
-                # Add action as assistant message to conversation
+                # Add full response as assistant message to conversation
                 self.conversation_history.append(
                     {
                         "role": "assistant",
-                        "content": action_json,  # Store the action JSON as the assistant response
+                        "content": response,  # Store the full response including THOUGHT and ACTION
                     }
                 )
+
+                # Track action history
+                self.action_history.append(action_json)
 
                 # Execute action and get next observation
                 observation = await env.step(action_json)

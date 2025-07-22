@@ -88,7 +88,7 @@ environment:
       password: "Password.123"
     shopping_admin:
       username: "admin"
-      password: "admin1234"
+      password: "admin12341"
     reddit:
       username: "MarvelsGrantMan136"
       password: "test1234"
@@ -133,6 +133,10 @@ llm:
 # ============================================================================
 debug: false           # Enable debug logging and detailed output
 log_level: INFO        # Logging level: DEBUG, INFO, WARNING, ERROR
+
+# Optional task configuration file path for REPL
+task_config: null      # Path to WebArena task config JSON file (for REPL)
+task-config: null      # Alternative hyphenated version for convenience
 
 # ============================================================================
 # HYDRA SETTINGS

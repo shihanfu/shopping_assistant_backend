@@ -77,9 +77,9 @@ async def test_web_agent():
 
             # Log conversation history for debugging
             logger.info(f"Conversation had {len(agent.conversation_history)} messages")
-            for i, msg in enumerate(agent.conversation_history[-4:]):  # Show last 4 messages
+            for i, msg in enumerate(agent.conversation_history):
                 role = msg["role"]
-                content = msg["content"][:200] + "..." if len(msg["content"]) > 200 else msg["content"]
+                content = msg["content"]
                 logger.info(f"Message {i}: {role}: {content}")
 
             logger.info("Test completed successfully!")

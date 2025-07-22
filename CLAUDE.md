@@ -152,6 +152,18 @@ observation = await env.observation()
 - Use structured logging with semantic context
 - Return error information in step() observations
 
+### Logging and Debugging Rules
+- **NEVER truncate conversation history or message content** - Always log full content without [:200] or similar truncation
+- **NEVER limit message history** - Log all messages, not just recent ones (avoid [-4:] or similar slicing)
+- **NEVER assume content length limits** - Show complete debugging information
+- **ALWAYS show full conversation history** - No shortcuts or "last N messages" approaches
+
+### Prompt Management Rules
+- **NEVER hardcode prompts in code** - Always load prompts from .txt files in rl_web_agent/prompts/
+- **Use load_prompt() function** - Import from rl_web_agent.prompts and use load_prompt("prompt_name")
+- **Create descriptive prompt files** - Name files clearly (e.g., fuzzy_match_evaluator.txt, system_prompt.txt)
+- **Keep prompts maintainable** - Use format strings with placeholders like {objective}, {question}, {reference}
+
 ## Development Notes
 
 ### Testing Approach

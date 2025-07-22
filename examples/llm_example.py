@@ -21,7 +21,10 @@ async def test_openai_completion(config):
 
     async with await create_llm_client(config.llm) as client:
         # Single completion
-        messages = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": "What is the capital of France?"}]
+        from rl_web_agent.prompts import load_prompt
+
+        system_prompt = load_prompt("helpful_assistant")
+        messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": "What is the capital of France?"}]
 
         result = await client.complete(messages)
         print(f"Response: {result}")
@@ -59,7 +62,7 @@ async def test_concurrent_completions(config):
         results = await client.complete_many(requests)
 
         for i, result in enumerate(results, 1):
-            print(f"Request {i}: {result[:50]}...")
+            print(f"Request {i}: {result}")
 
 
 async def run_tests(cfg: DictConfig) -> None:
