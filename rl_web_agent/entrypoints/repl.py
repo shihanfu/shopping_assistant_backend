@@ -547,6 +547,8 @@ def main(cfg: DictConfig) -> None:
     logging.getLogger("botocore").setLevel(logging.WARNING)
     logging.getLogger("boto3").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("aiobotocore").setLevel(logging.WARNING)
 
     # Check if task_config is provided via Hydra config override (support both formats)
     task_config = None

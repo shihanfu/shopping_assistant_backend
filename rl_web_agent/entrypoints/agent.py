@@ -56,6 +56,8 @@ async def run_agent_task():
         logging.getLogger("botocore").setLevel(logging.WARNING)
         logging.getLogger("boto3").setLevel(logging.WARNING)
         logging.getLogger("urllib3").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        logging.getLogger("aiobotocore").setLevel(logging.WARNING)
 
         # Override browser directories to use temporary ones
         cfg.environment.browser.user_data_dir = temp_user_data_dir
@@ -63,7 +65,7 @@ async def run_agent_task():
 
         # Load test task
         project_root = Path(__file__).parent.parent.parent
-        test_task_path = project_root / "thirdparty" / "webarena" / "config_files" / "507.json"
+        test_task_path = project_root / "thirdparty" / "webarena" / "config_files" / "508.json"
         with open(test_task_path) as f:
             test_task = json.load(f)
 
