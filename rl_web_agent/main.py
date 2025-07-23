@@ -15,6 +15,12 @@ FAKE_TASK_CONFIG = {"sites": ["shopping"], "task_id": 1, "require_login": False,
 def main(cfg: DictConfig) -> None:
     """Main entry point for the web agent"""
     logging.basicConfig(level=cfg.log_level)
+
+    # Suppress verbose botocore logging
+    logging.getLogger("botocore").setLevel(logging.WARNING)
+    logging.getLogger("boto3").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+
     logger = logging.getLogger(__name__)
 
     # Create and setup environment

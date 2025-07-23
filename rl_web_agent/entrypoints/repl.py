@@ -543,6 +543,11 @@ def main(cfg: DictConfig) -> None:
     log_level = getattr(logging, cfg.log_level.upper())
     logging.basicConfig(level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
+    # Suppress verbose botocore logging
+    logging.getLogger("botocore").setLevel(logging.WARNING)
+    logging.getLogger("boto3").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+
     # Check if task_config is provided via Hydra config override (support both formats)
     task_config = None
     task_config_path = None

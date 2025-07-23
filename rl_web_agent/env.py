@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 from typing import ClassVar
 
+import httpx
 from omegaconf import DictConfig, OmegaConf
 from playwright.async_api import Playwright, async_playwright
 
@@ -49,6 +50,81 @@ class WebAgentEnv:
         for i, page in enumerate(self.context.pages):
             tabs_info.append({"id": i, "title": await page.title(), "url": page.url, "is_active": page == self.page})
         return tabs_info
+
+    async def _wait_for_containers_online(self) -> None:
+        """Wait for all launched containers to be online using HTTP HEAD requests with retry logic"""
+        self.logger.info("Waiting for containers to come online...")
+
+        # Get timeout from config (convert from milliseconds to seconds)
+        timeout_seconds = self.config.browser.timeouts.container_health_check / 1000
+        retry_interval = 2.0  # Wait 2 seconds between retries
+
+        # Set up proxy if enabled
+        proxy = None
+        if self.config.proxy.enabled:
+            proxy = self.config.proxy.server
+            self.logger.info(f"Using proxy for health checks: {self.config.proxy.server}")
+
+        # Track which sites still need to come online
+        pending_sites = {site_name: ip_address for site_name, ip_address in self.server_ips.items() if ip_address != "10.2.1.203"}  # Skip placeholder IPs
+
+        if not pending_sites:
+            self.logger.info("No containers to health check (all using placeholder IPs)")
+            return
+
+        # Track start time for overall timeout
+        start_time = asyncio.get_event_loop().time()
+
+        # Create httpx client with per-request timeout
+        async with httpx.AsyncClient(
+            timeout=10.0,  # Shorter per-request timeout
+            proxy=proxy,  # Use 'proxy' not 'proxies' for httpx
+            follow_redirects=True,
+        ) as client:
+            while pending_sites and (asyncio.get_event_loop().time() - start_time) < timeout_seconds:
+                # Try each pending site
+                sites_to_remove = []
+
+                for site_name, ip_address in pending_sites.items():
+                    try:
+                        # Construct health check URL
+                        health_url = f"http://{ip_address}:80"
+
+                        # Use HEAD request to check if port is open and responding
+                        response = await client.head(health_url, follow_redirects=False)
+
+                        if response.status_code < 400:  # Accept any 2xx or 3xx status
+                            self.logger.info(f"✅ {site_name} is now online (status: {response.status_code})")
+                            sites_to_remove.append(site_name)
+                        else:
+                            self.logger.debug(f"⏳ {site_name} returned status {response.status_code}, retrying...")
+
+                    except (httpx.TimeoutException, httpx.ConnectError, httpx.RequestError):
+                        # These are expected during startup, just continue retrying
+                        self.logger.debug(f"⏳ {site_name} not ready yet, retrying...")
+                    except Exception as e:
+                        self.logger.warning(f"⚠️ Unexpected error for {site_name}: {e}, retrying...")
+
+                # Remove sites that are now online
+                for site_name in sites_to_remove:
+                    del pending_sites[site_name]
+
+                # If all sites are online, we're done
+                if not pending_sites:
+                    break
+
+                # Wait before next retry attempt
+                self.logger.info(f"⏳ Waiting for {len(pending_sites)} containers: {list(pending_sites.keys())}")
+                await asyncio.sleep(retry_interval)
+
+        # Check if we timed out
+        if pending_sites:
+            elapsed = asyncio.get_event_loop().time() - start_time
+            self.logger.error(f"❌ Timeout after {elapsed:.1f}s waiting for containers: {list(pending_sites.keys())}")
+            self.logger.warning("Proceeding with setup despite some containers not being ready...")
+        else:
+            elapsed = asyncio.get_event_loop().time() - start_time
+            self.logger.info(f"✅ All containers online after {elapsed:.1f}s!")
 
     async def login_to_site(self, site_name: str) -> None:
         """Login to a specific site using hardcoded login logic"""
@@ -135,14 +211,13 @@ class WebAgentEnv:
 
         # Launch web servers based on task_config["sites"]
         if self.task_config and "sites" in self.task_config:
-            from rl_web_agent.incus_client import IncusClient
+            from rl_web_agent.incus_client import health_check, launch_container
 
             # Get Incus server URL from config - fail fast if not configured
             incus_server_url = self.config.incus_server_url
-            incus_client = IncusClient(incus_server_url)
 
             # Check if Incus server is available
-            if not await incus_client.health_check():
+            if not await health_check(incus_server_url):
                 self.logger.warning(f"Incus server not available at {incus_server_url}, using placeholder IPs")
                 # Fallback to placeholder IPs
                 for site in self.task_config["sites"]:
@@ -158,7 +233,7 @@ class WebAgentEnv:
                         container_name = f"{site}-{self.uuid}"
 
                         # Launch container and get IP
-                        ip_address = await incus_client.launch_container(base_container_name, container_name)
+                        ip_address = await launch_container(incus_server_url, base_container_name, container_name)
                         self.server_ips[site] = ip_address
                         self.launched_containers.append(container_name)
 
@@ -168,6 +243,10 @@ class WebAgentEnv:
                         self.logger.error(f"Failed to launch container for site {site}: {e}")
                         # Use placeholder IP as fallback
                         self.server_ips[site] = "10.2.1.203"
+
+                # Wait for all launched containers to be online
+                if self.server_ips:
+                    await self._wait_for_containers_online()
         else:
             self.logger.warning("No sites specified in task config")
 
@@ -774,7 +853,7 @@ class WebAgentEnv:
             content["score"] = score
 
             # Always terminate if model called terminate
-            content["terminated"] = self.model_answer is not None
+            content["terminated"] = self.model_answer is not None or score != 0.0
         else:
             content["score"] = 0.0
             content["terminated"] = False
@@ -814,18 +893,34 @@ class WebAgentEnv:
         """Clean up and close the browser"""
         # Clean up launched containers
         if self.launched_containers:
+            self.logger.info(f"Cleaning up {len(self.launched_containers)} launched containers...")
             try:
-                from rl_web_agent.incus_client import IncusClient
+                from rl_web_agent.incus_client import health_check
 
                 incus_server_url = self.config.incus_server_url
-                incus_client = IncusClient(incus_server_url)
 
-                for container_name in self.launched_containers:
-                    try:
-                        await incus_client.delete_container(container_name)
-                        self.logger.info(f"Cleaned up container {container_name}")
-                    except Exception as e:
-                        self.logger.error(f"Failed to cleanup container {container_name}: {e}")
+                # Check if Incus server is still available
+                if await health_check(incus_server_url):
+                    # Delete containers in parallel for faster cleanup
+                    deletion_tasks = []
+                    for container_name in self.launched_containers:
+                        task = asyncio.create_task(self._delete_container_with_retry(incus_server_url, container_name))
+                        deletion_tasks.append(task)
+
+                    # Wait for all deletions to complete
+                    if deletion_tasks:
+                        results = await asyncio.gather(*deletion_tasks, return_exceptions=True)
+
+                        # Log results
+                        success_count = sum(1 for result in results if result is True)
+                        failure_count = len(results) - success_count
+
+                        if success_count > 0:
+                            self.logger.info(f"✅ Successfully cleaned up {success_count} containers")
+                        if failure_count > 0:
+                            self.logger.warning(f"⚠️ Failed to clean up {failure_count} containers")
+                else:
+                    self.logger.warning("Incus server not available for cleanup - containers may still be running")
 
                 self.launched_containers.clear()
 
@@ -835,3 +930,31 @@ class WebAgentEnv:
         # Stopping playwright will automatically cleanup all browsers, contexts and pages
         if self.context_manager:
             await self._cleanup_playwright()
+
+    async def _delete_container_with_retry(self, incus_server_url: str, container_name: str, max_retries: int = 2) -> bool:
+        """
+        Delete a container with retry logic.
+
+        Args:
+            incus_server_url: Incus server URL
+            container_name: Name of container to delete
+            max_retries: Maximum number of retry attempts
+
+        Returns:
+            bool: True if deletion was successful, False otherwise
+        """
+        from rl_web_agent.incus_client import delete_container
+
+        for attempt in range(max_retries + 1):
+            try:
+                await delete_container(incus_server_url, container_name)
+                self.logger.info(f"🗑️ Deleted container {container_name}")
+                return True
+            except Exception as e:
+                if attempt < max_retries:
+                    self.logger.warning(f"⚠️ Failed to delete {container_name} (attempt {attempt + 1}/{max_retries + 1}): {e}")
+                    await asyncio.sleep(1)  # Wait 1 second before retry
+                else:
+                    self.logger.error(f"❌ Final failure deleting {container_name}: {e}")
+                    return False
+        return False

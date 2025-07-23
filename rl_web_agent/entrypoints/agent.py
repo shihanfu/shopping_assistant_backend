@@ -52,13 +52,18 @@ async def run_agent_task():
         log_level = getattr(logging, cfg.log_level.upper())
         logging.basicConfig(level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
+        # Suppress verbose botocore logging
+        logging.getLogger("botocore").setLevel(logging.WARNING)
+        logging.getLogger("boto3").setLevel(logging.WARNING)
+        logging.getLogger("urllib3").setLevel(logging.WARNING)
+
         # Override browser directories to use temporary ones
         cfg.environment.browser.user_data_dir = temp_user_data_dir
         cfg.environment.browser.cache_dir = temp_cache_dir
 
         # Load test task
         project_root = Path(__file__).parent.parent.parent
-        test_task_path = project_root / "thirdparty" / "webarena" / "config_files" / "506.json"
+        test_task_path = project_root / "thirdparty" / "webarena" / "config_files" / "507.json"
         with open(test_task_path) as f:
             test_task = json.load(f)
 

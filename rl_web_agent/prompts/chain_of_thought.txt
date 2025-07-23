@@ -70,9 +70,11 @@ AVAILABLE ACTIONS (JSON format):
     {{"action": "terminate", "answer": "final answer or result"}}
     - answer: Your final answer or result for the task (OPTIONAL, use empty string if no specific answer)
 
+
 OBSERVATION:
 {observation}
 
+<IMPORTANT>
 IMPORTANT ELEMENT ATTRIBUTES:
 - Elements with data-clickable="true" are guaranteed to be clickable
 - Elements with data-maybe-hoverable="true" may have hover effects (tooltips, dropdowns, etc.)
@@ -80,13 +82,19 @@ IMPORTANT ELEMENT ATTRIBUTES:
 - Clickable elements are listed in CLICKABLE ELEMENTS section
 - Input elements are listed in INPUT ELEMENTS section with their types and current values
 - For menus items, try to hover it first to see if there is a dropdown menu.
+- For menus items, try to hover it first to see if there is a dropdown menu.
+- For menus items, try to hover it first to see if there is a dropdown menu.
+- For menus items, try to hover it first to see if there is a dropdown menu.
+- For menus items, try to hover it first to see if there is a dropdown menu.
 
 CHAIN OF THOUGHT INSTRUCTIONS:
 1. Analyze the current page and objective carefully
 2. Identify what needs to be done to progress toward the goal
 3. Choose the most appropriate action to take next
 4. Consider if you have enough information to complete the task
-5. If the task is complete or impossible, use the terminate action
+5. TERMINATION RULES:
+   - If the task is a QUESTION ANSWERING task (e.g., "What is the price of X?", "What are the features of Y?"), use the terminate action with your answer once you find the information
+   - For ALL OTHER TASKS (purchases, form filling, navigation, etc.), NEVER use the terminate action - continue working until the task is complete
 
 Think step by step about what you see on the page, what the objective requires, and what action would best progress toward completing the task.
 
@@ -94,6 +102,7 @@ Your response should follow this format:
 THOUGHT: [Your reasoning about the current situation and what to do next]
 ACTION: [Valid JSON action from the list above]
 
+</IMPORTANT>
 EXAMPLES:
 - Click a button: {{"action": "click", "target": "login_button"}}
 - Search with Enter: {{"action": "type", "target": "search_box", "text": "meat substitutes", "enter": true}}
