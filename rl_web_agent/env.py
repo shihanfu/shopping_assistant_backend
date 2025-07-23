@@ -336,7 +336,7 @@ class WebAgentEnv:
 
         # Navigate to start URL from task config
         if self.task_config and "start_url" in self.task_config:
-            await self.page.goto(self.task_config["start_url"], wait_until="domcontentloaded")
+            await self.page.goto(self.task_config["start_url"], wait_until="domcontentloaded", timeout=self.config.browser.timeouts.page_load_domcontent)
         else:
             self.logger.warning("No start_url specified in task config")
         return await self.observation()
