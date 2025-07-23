@@ -10,7 +10,7 @@
 # ============================================================================
 # Web environment including browser, proxy, and script paths
 environment:
-  incus_server_url: "http://localhost:8001"
+  incus_server_url: "http://127.0.0.1:8001"
   # Site configurations - mapping of site names to their hostnames
   # These hostnames will be rewritten to actual IP addresses by the proxy
   sites:
@@ -83,6 +83,14 @@ environment:
     # Sleep configuration (in seconds)
     sleep_after_action: 0.5      # Sleep time after each action (helps with page stability)
 
+  # Browser tracing for debugging and analysis
+  tracing:
+    enabled: false                           # Enable Playwright tracing
+    output_path: "trace.zip"                  # File path for trace output
+    screenshots: true                        # Include screenshots in traces
+    snapshots: true                          # Include DOM snapshots in traces
+    sources: true                            # Include source code in traces
+
   # Account credentials for WebArena sites
   accounts:
     shopping:
@@ -97,6 +105,13 @@ environment:
     gitlab:
       username: "byteblaze"
       password: "hello1234"
+
+# ============================================================================
+# AGENT CONFIGURATION
+# ============================================================================
+# Web agent behavior settings
+agent:
+  max_steps: 50                     # Maximum number of actions to prevent infinite loops
 
 # ============================================================================
 # LLM CONFIGURATION

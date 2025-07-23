@@ -50,17 +50,19 @@ class WebAgent:
     LLM-powered web agent that can complete tasks using chain-of-thought reasoning.
     """
 
-    def __init__(self, llm_config: DictConfig):
+    def __init__(self, llm_config: DictConfig, agent_config: DictConfig):
         """
-        Initialize the web agent with LLM configuration.
+        Initialize the web agent with LLM and agent configuration.
 
         Args:
             llm_config: Configuration for LLM provider
+            agent_config: Configuration for agent behavior
         """
         self.llm_config = llm_config
+        self.agent_config = agent_config
         self.llm_provider = None
         self.logger = logging.getLogger(__name__)
-        self.max_steps = 50  # Maximum number of actions to prevent infinite loops
+        self.max_steps = agent_config.max_steps
 
         # Conversation history - each user message is an observation, each assistant message is an action
         self.conversation_history = []
@@ -455,16 +457,17 @@ class WebAgent:
             await env.close()
 
 
-async def create_web_agent(llm_config: DictConfig) -> WebAgent:
+async def create_web_agent(llm_config: DictConfig, agent_config: DictConfig) -> WebAgent:
     """
     Create and initialize a WebAgent.
 
     Args:
         llm_config: LLM configuration
+        agent_config: Agent behavior configuration
 
     Returns:
         Initialized WebAgent instance
     """
-    agent = WebAgent(llm_config)
+    agent = WebAgent(llm_config, agent_config)
     await agent.setup()
     return agent

@@ -10,7 +10,24 @@ import logging
 import httpx
 
 
-async def launch_container(server_url: str, base_name: str, container_name: str, timeout: int = 300) -> str:
+def _get_httpx_client_kwargs(proxy_server: str | None = None, timeout: int = 300) -> dict:
+    """
+    Create httpx client kwargs with optional proxy configuration.
+
+    Args:
+        proxy_server: Proxy server URL (e.g., "http://localhost:8080")
+        timeout: Request timeout in seconds
+
+    Returns:
+        dict: Client configuration kwargs
+    """
+    kwargs = {"timeout": timeout}
+    if proxy_server:
+        kwargs["proxy"] = proxy_server
+    return kwargs
+
+
+async def launch_container(server_url: str, base_name: str, container_name: str, timeout: int = 300, proxy_server: str | None = None) -> str:
     """
     Launch a new container by copying from base and starting it.
 
@@ -19,6 +36,7 @@ async def launch_container(server_url: str, base_name: str, container_name: str,
         base_name: Name of the base container to copy from
         container_name: Name for the new container instance
         timeout: Request timeout in seconds
+        proxy_server: Optional proxy server URL for HTTP requests
 
     Returns:
         str: IP address of the launched container
@@ -32,8 +50,11 @@ async def launch_container(server_url: str, base_name: str, container_name: str,
     payload = {"base_name": base_name, "container_name": container_name}
 
     logger.info(f"Launching container {container_name} from base {base_name}")
+    if proxy_server:
+        logger.debug(f"Using proxy server: {proxy_server}")
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    client_kwargs = _get_httpx_client_kwargs(proxy_server, timeout)
+    async with httpx.AsyncClient(**client_kwargs) as client:
         try:
             response = await client.post(url, json=payload)
             if response.status_code == 200:
@@ -54,7 +75,7 @@ async def launch_container(server_url: str, base_name: str, container_name: str,
             raise RuntimeError(f"Network error launching container {container_name}: {e}") from e
 
 
-async def delete_container(server_url: str, container_name: str, timeout: int = 300) -> None:
+async def delete_container(server_url: str, container_name: str, timeout: int = 300, proxy_server: str | None = None) -> None:
     """
     Stop and remove a container.
 
@@ -62,6 +83,7 @@ async def delete_container(server_url: str, container_name: str, timeout: int = 
         server_url: Incus server URL (e.g., "http://localhost:8001")
         container_name: Name of the container to delete
         timeout: Request timeout in seconds
+        proxy_server: Optional proxy server URL for HTTP requests
 
     Raises:
         RuntimeError: If container deletion fails
@@ -71,8 +93,11 @@ async def delete_container(server_url: str, container_name: str, timeout: int = 
     url = f"{server_url}/containers/{container_name}"
 
     logger.info(f"Deleting container {container_name}")
+    if proxy_server:
+        logger.debug(f"Using proxy server: {proxy_server}")
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    client_kwargs = _get_httpx_client_kwargs(proxy_server, timeout)
+    async with httpx.AsyncClient(**client_kwargs) as client:
         try:
             response = await client.delete(url)
             if response.status_code == 200:
@@ -90,7 +115,7 @@ async def delete_container(server_url: str, container_name: str, timeout: int = 
             raise RuntimeError(f"Network error deleting container {container_name}: {e}") from e
 
 
-async def get_container_status(server_url: str, container_name: str, timeout: int = 300) -> dict | None:
+async def get_container_status(server_url: str, container_name: str, timeout: int = 300, proxy_server: str | None = None) -> dict | None:
     """
     Get status of a container.
 
@@ -98,6 +123,7 @@ async def get_container_status(server_url: str, container_name: str, timeout: in
         server_url: Incus server URL (e.g., "http://localhost:8001")
         container_name: Name of the container
         timeout: Request timeout in seconds
+        proxy_server: Optional proxy server URL for HTTP requests
 
     Returns:
         dict: Container status information or None if not found
@@ -106,7 +132,11 @@ async def get_container_status(server_url: str, container_name: str, timeout: in
     server_url = server_url.rstrip("/")
     url = f"{server_url}/containers/{container_name}/status"
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    if proxy_server:
+        logger.debug(f"Using proxy server: {proxy_server}")
+
+    client_kwargs = _get_httpx_client_kwargs(proxy_server, timeout)
+    async with httpx.AsyncClient(**client_kwargs) as client:
         try:
             response = await client.get(url)
             if response.status_code == 200:
@@ -123,13 +153,14 @@ async def get_container_status(server_url: str, container_name: str, timeout: in
             return None
 
 
-async def health_check(server_url: str, timeout: int = 10) -> bool:
+async def health_check(server_url: str, timeout: int = 10, proxy_server: str | None = None) -> bool:
     """
     Check if the Incus server is healthy and available.
 
     Args:
         server_url: Incus server URL (e.g., "http://localhost:8001")
         timeout: Request timeout in seconds
+        proxy_server: Optional proxy server URL for HTTP requests
 
     Returns:
         bool: True if server is healthy, False otherwise
@@ -137,7 +168,8 @@ async def health_check(server_url: str, timeout: int = 10) -> bool:
     server_url = server_url.rstrip("/")
     url = f"{server_url}/health"
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    client_kwargs = _get_httpx_client_kwargs(proxy_server, timeout)
+    async with httpx.AsyncClient(**client_kwargs) as client:
         try:
             response = await client.get(url)
             return response.status_code == 200

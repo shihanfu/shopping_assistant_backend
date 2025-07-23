@@ -27,6 +27,7 @@ class WebAgentEnv:
         self.model_answer: str | None = None  # Model's final answer/response
         self.extra_headers: dict[str, str] = {}  # Host rewrite headers for proxy
         self.launched_containers: list[str] = []  # Track containers launched for this environment
+        self.trace_file_path: str | None = None  # Path to the current trace file
 
     @classmethod
     async def _ensure_playwright(cls) -> Playwright:
@@ -43,6 +44,35 @@ class WebAgentEnv:
         if cls._shared_playwright_users == 0 and cls._shared_playwright is not None:
             await cls._shared_playwright.stop()
             cls._shared_playwright = None
+
+    async def _setup_tracing(self) -> None:
+        """Setup Playwright tracing if enabled in config"""
+        if not self.config.tracing.enabled:
+            self.logger.debug("Tracing not enabled")
+            return
+
+        # Use trace output path directly as file path
+        self.trace_file_path = self.config.tracing.output_path
+
+        # Start tracing with configured options
+        await self.context.tracing.start(
+            screenshots=self.config.tracing.get("screenshots", True),
+            snapshots=self.config.tracing.get("snapshots", True),
+            sources=self.config.tracing.get("sources", True),
+        )
+
+        self.logger.info(f"Tracing started, will save to: {self.trace_file_path}")
+
+    async def _stop_tracing(self) -> None:
+        """Stop tracing and save trace file"""
+        if self.trace_file_path and self.context:
+            try:
+                await self.context.tracing.stop(path=self.trace_file_path)
+                self.logger.info(f"Trace saved to: {self.trace_file_path}")
+            except Exception as e:
+                self.logger.warning(f"Failed to save trace: {e}")
+            finally:
+                self.trace_file_path = None
 
     async def _get_tabs_info(self) -> list[dict]:
         """Get information about all open tabs"""
@@ -216,8 +246,11 @@ class WebAgentEnv:
             # Get Incus server URL from config - fail fast if not configured
             incus_server_url = self.config.incus_server_url
 
+            # Get proxy configuration
+            proxy_server = self.config.proxy.server if self.config.proxy.enabled else None
+
             # Check if Incus server is available
-            if not await health_check(incus_server_url):
+            if not await health_check(incus_server_url, proxy_server=proxy_server):
                 self.logger.warning(f"Incus server not available at {incus_server_url}, using placeholder IPs")
                 # Fallback to placeholder IPs
                 for site in self.task_config["sites"]:
@@ -233,7 +266,7 @@ class WebAgentEnv:
                         container_name = f"{site}-{self.uuid}"
 
                         # Launch container and get IP
-                        ip_address = await launch_container(incus_server_url, base_container_name, container_name)
+                        ip_address = await launch_container(incus_server_url, base_container_name, container_name, proxy_server=proxy_server)
                         self.server_ips[site] = ip_address
                         self.launched_containers.append(container_name)
 
@@ -309,6 +342,9 @@ class WebAgentEnv:
             # Regular launch without persistent context
             self.browser = await self.context_manager.chromium.launch(**launch_options)
             self.context = await self.browser.new_context(**context_options)
+
+        # Start tracing if enabled
+        await self._setup_tracing()
 
         # Set default timeout for all locator actions
         self.context.set_default_timeout(self.config.browser.timeouts.default)
@@ -891,6 +927,9 @@ class WebAgentEnv:
 
     async def close(self):
         """Clean up and close the browser"""
+        # Stop tracing if active
+        await self._stop_tracing()
+
         # Clean up launched containers
         if self.launched_containers:
             self.logger.info(f"Cleaning up {len(self.launched_containers)} launched containers...")
@@ -899,12 +938,15 @@ class WebAgentEnv:
 
                 incus_server_url = self.config.incus_server_url
 
+                # Get proxy configuration
+                proxy_server = self.config.proxy.server if self.config.proxy.enabled else None
+
                 # Check if Incus server is still available
-                if await health_check(incus_server_url):
+                if await health_check(incus_server_url, proxy_server=proxy_server):
                     # Delete containers in parallel for faster cleanup
                     deletion_tasks = []
                     for container_name in self.launched_containers:
-                        task = asyncio.create_task(self._delete_container_with_retry(incus_server_url, container_name))
+                        task = asyncio.create_task(self._delete_container_with_retry(incus_server_url, container_name, proxy_server))
                         deletion_tasks.append(task)
 
                     # Wait for all deletions to complete
@@ -931,13 +973,14 @@ class WebAgentEnv:
         if self.context_manager:
             await self._cleanup_playwright()
 
-    async def _delete_container_with_retry(self, incus_server_url: str, container_name: str, max_retries: int = 2) -> bool:
+    async def _delete_container_with_retry(self, incus_server_url: str, container_name: str, proxy_server: str | None, max_retries: int = 2) -> bool:
         """
         Delete a container with retry logic.
 
         Args:
             incus_server_url: Incus server URL
             container_name: Name of container to delete
+            proxy_server: Optional proxy server URL for HTTP requests
             max_retries: Maximum number of retry attempts
 
         Returns:
@@ -947,7 +990,7 @@ class WebAgentEnv:
 
         for attempt in range(max_retries + 1):
             try:
-                await delete_container(incus_server_url, container_name)
+                await delete_container(incus_server_url, container_name, proxy_server=proxy_server)
                 self.logger.info(f"🗑️ Deleted container {container_name}")
                 return True
             except Exception as e:

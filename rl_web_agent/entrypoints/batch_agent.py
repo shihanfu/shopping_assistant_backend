@@ -112,9 +112,13 @@ async def run_single_task(task_id: str, task_config: dict, cfg: Any, output_dir:
             task_cfg.environment.browser.user_data_dir = temp_user_data_dir
             task_cfg.environment.browser.cache_dir = temp_cache_dir
 
+            # Enable tracing for batch tasks and set output to task-specific trace file
+            task_cfg.environment.tracing.enabled = True
+            task_cfg.environment.tracing.output_path = str(output_dir / f"task_{task_id}" / "trace.zip")
+
             # Create environment and agent using the proper factory functions
             env = WebAgentEnv(task_cfg.environment)
-            agent = await create_web_agent(task_cfg.llm)
+            agent = await create_web_agent(task_cfg.llm, task_cfg.agent)
 
             # Start tracing
             tracer.start_task(task_config)
@@ -125,7 +129,7 @@ async def run_single_task(task_id: str, task_config: dict, cfg: Any, output_dir:
                 logger.info(f"Task {task_id}: Environment setup complete")
 
                 # Use the WebAgent's run_task method - it handles everything!
-                result = await agent.run_task(env, task_config["intent"], max_steps=50)
+                result = await agent.run_task(env, task_config["intent"])
 
                 # Extract trace information from agent's conversation and action history
                 trace_steps = []

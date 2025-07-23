@@ -71,7 +71,7 @@ async def run_agent_task():
 
         # Create environment and agent
         env = WebAgentEnv(cfg.environment)
-        agent = await create_web_agent(cfg.llm)
+        agent = await create_web_agent(cfg.llm, cfg.agent)
 
         try:
             # Setup environment with test task
@@ -80,7 +80,7 @@ async def run_agent_task():
 
             # Run the task until completion (terminated=True)
             logger.info("Starting agent task execution - will run until terminated")
-            result = await agent.run_task(env, test_task["intent"], max_steps=50)
+            result = await agent.run_task(env, test_task["intent"])
 
             # Print final results
             logger.info("=" * 60)
