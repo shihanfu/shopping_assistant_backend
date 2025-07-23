@@ -9,7 +9,6 @@ It provides endpoints to launch, manage, and cleanup containers for WebArena env
 import asyncio
 import json
 import logging
-from typing import Optional
 
 from quart import Quart, jsonify, request
 
@@ -32,7 +31,7 @@ async def run_incus_command(cmd: list[str]) -> tuple[int, str, str]:
         return 1, "", str(e)
 
 
-async def get_container_ip(container_name: str) -> Optional[str]:
+async def get_container_ip(container_name: str) -> str | None:
     """Get IP address of a running container"""
     cmd = ["incus", "list", container_name, "--format", "json"]
     exit_code, stdout, stderr = await run_incus_command(cmd)
@@ -66,7 +65,7 @@ async def get_container_ip(container_name: str) -> Optional[str]:
         return None
 
 
-async def get_container_status(container_name: str) -> Optional[str]:
+async def get_container_status(container_name: str) -> str | None:
     """Get status of a container"""
     cmd = ["incus", "list", container_name, "--format", "json"]
     exit_code, stdout, stderr = await run_incus_command(cmd)
@@ -89,9 +88,9 @@ async def launch_container():
     """Launch a new container by copying from base and starting it"""
     data = await request.get_json()
     base_name = data["base_name"]
-    instance_name = data["instance_name"]
+    container_name = data["container_name"]
 
-    logger.info(f"Launching container {instance_name} from base {base_name}")
+    logger.info(f"Launching container {container_name} from base {base_name}")
 
     # Step 1: Stop base container if it's running (required for copying)
     base_status = await get_container_status(base_name)
@@ -104,45 +103,45 @@ async def launch_container():
             return jsonify({"error": f"Failed to stop base container {base_name}: {stderr}"}), 500
 
     # Step 2: Copy base container
-    copy_cmd = ["incus", "copy", base_name, instance_name]
+    copy_cmd = ["incus", "copy", base_name, container_name]
     exit_code, stdout, stderr = await run_incus_command(copy_cmd)
 
     if exit_code != 0:
         logger.error(f"Failed to copy container: {stderr}")
         return jsonify({"error": f"Failed to copy container from {base_name}: {stderr}"}), 500
 
-    logger.info(f"Successfully copied {base_name} to {instance_name}")
+    logger.info(f"Successfully copied {base_name} to {container_name}")
 
     # Step 3: Start the container
-    start_cmd = ["incus", "start", instance_name]
+    start_cmd = ["incus", "start", container_name]
     exit_code, stdout, stderr = await run_incus_command(start_cmd)
 
     if exit_code != 0:
         logger.error(f"Failed to start container: {stderr}")
         # Cleanup: remove the copied container
-        await run_incus_command(["incus", "rm", instance_name])
-        return jsonify({"error": f"Failed to start container {instance_name}: {stderr}"}), 500
+        await run_incus_command(["incus", "rm", container_name])
+        return jsonify({"error": f"Failed to start container {container_name}: {stderr}"}), 500
 
-    logger.info(f"Successfully started container {instance_name}")
+    logger.info(f"Successfully started container {container_name}")
 
     # Step 4: Wait for container to get IP address
     max_retries = 30  # 30 seconds timeout
     ip_address = None
 
     for retry in range(max_retries):
-        ip_address = await get_container_ip(instance_name)
+        ip_address = await get_container_ip(container_name)
         if ip_address:
             break
         await asyncio.sleep(1)
 
     if not ip_address:
-        logger.error(f"Container {instance_name} started but no IP address found")
+        logger.error(f"Container {container_name} started but no IP address found")
         # Don't fail here, just log warning - container might still be usable
         ip_address = "unknown"
 
-    logger.info(f"Container {instance_name} launched successfully with IP {ip_address}")
+    logger.info(f"Container {container_name} launched successfully with IP {ip_address}")
 
-    return jsonify({"container_name": instance_name, "ip_address": ip_address, "status": "running"})
+    return jsonify({"container_name": container_name, "ip_address": ip_address, "status": "running"})
 
 
 @app.route("/containers/<container_name>", methods=["DELETE"])
@@ -199,4 +198,4 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=False)
+    app.run(host="0.0.0.0", port=8001, debug=False)
