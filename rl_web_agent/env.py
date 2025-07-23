@@ -19,12 +19,13 @@ class WebAgentEnv:
         self.context = None
         self.page = None  # Current active page
         # Note: pages are managed by self.context.pages
-        self.uuid = getattr(environment_config, "uuid", str(uuid.uuid4()))
+        self.uuid = environment_config.uuid if hasattr(environment_config, "uuid") else str(uuid.uuid4())
         self.logger = logging.getLogger(__name__)
         self.task_config: dict | None = None
         self.server_ips: dict[str, str] = {}  # Mapping of site name to server IP
         self.model_answer: str | None = None  # Model's final answer/response
         self.extra_headers: dict[str, str] = {}  # Host rewrite headers for proxy
+        self.launched_containers: list[str] = []  # Track containers launched for this environment
 
     @classmethod
     async def _ensure_playwright(cls) -> Playwright:
@@ -132,18 +133,43 @@ class WebAgentEnv:
         self.task_config = task_config
         self.context_manager = await self._ensure_playwright()
 
-        # TODO: Launch web servers based on task_config["sites"]
-        # Example implementation:
-        # if self.task_config and "sites" in self.task_config:
-        #     for site in self.task_config["sites"]:
-        #         self.server_ips[site] = await launch_web_server(site)
-        # else:
-        #     self.logger.warning("No sites specified in task config")
-
-        # Placeholder IPs for testing, should come from server launch
+        # Launch web servers based on task_config["sites"]
         if self.task_config and "sites" in self.task_config:
-            for site in self.task_config["sites"]:
-                self.server_ips[site] = "10.2.1.203"  # This should come from actual server launch
+            from rl_web_agent.incus_client import IncusClient
+
+            # Get Incus server URL from config - fail fast if not configured
+            incus_server_url = self.config.incus_server_url
+            incus_client = IncusClient(incus_server_url)
+
+            # Check if Incus server is available
+            if not await incus_client.health_check():
+                self.logger.warning(f"Incus server not available at {incus_server_url}, using placeholder IPs")
+                # Fallback to placeholder IPs
+                for site in self.task_config["sites"]:
+                    self.server_ips[site] = "10.2.1.203"
+            else:
+                # Launch containers for each required site
+                for site in self.task_config["sites"]:
+                    try:
+                        # Map site names to base container names
+                        base_container_name = site.replace("_", "-")  # shopping_admin -> shopping-admin
+
+                        # Generate unique container name using environment UUID
+                        container_name = f"{site}-{self.uuid}"
+
+                        # Launch container and get IP
+                        ip_address = await incus_client.launch_container(base_container_name, container_name)
+                        self.server_ips[site] = ip_address
+                        self.launched_containers.append(container_name)
+
+                        self.logger.info(f"Launched container {container_name} for site {site} with IP {ip_address}")
+
+                    except Exception as e:
+                        self.logger.error(f"Failed to launch container for site {site}: {e}")
+                        # Use placeholder IP as fallback
+                        self.server_ips[site] = "10.2.1.203"
+        else:
+            self.logger.warning("No sites specified in task config")
 
         # Get launch options from config and convert to dict
         launch_options = OmegaConf.to_container(self.config.browser.launch_options, resolve=True)
@@ -373,9 +399,8 @@ class WebAgentEnv:
                 raise ValueError(f"Unknown action: {action_name}")
 
             # Sleep after action if configured
-            sleep_time = getattr(self.config.browser, "sleep_after_action", 0)
-            if sleep_time > 0:
-                await asyncio.sleep(sleep_time)
+            if hasattr(self.config.browser, "sleep_after_action") and self.config.browser.sleep_after_action > 0:
+                await asyncio.sleep(self.config.browser.sleep_after_action)
 
             # Return the next observation after executing the action
             observation = await self.observation()
@@ -787,6 +812,26 @@ class WebAgentEnv:
 
     async def close(self):
         """Clean up and close the browser"""
+        # Clean up launched containers
+        if self.launched_containers:
+            try:
+                from rl_web_agent.incus_client import IncusClient
+
+                incus_server_url = self.config.incus_server_url
+                incus_client = IncusClient(incus_server_url)
+
+                for container_name in self.launched_containers:
+                    try:
+                        await incus_client.delete_container(container_name)
+                        self.logger.info(f"Cleaned up container {container_name}")
+                    except Exception as e:
+                        self.logger.error(f"Failed to cleanup container {container_name}: {e}")
+
+                self.launched_containers.clear()
+
+            except Exception as e:
+                self.logger.error(f"Error during container cleanup: {e}")
+
         # Stopping playwright will automatically cleanup all browsers, contexts and pages
         if self.context_manager:
             await self._cleanup_playwright()

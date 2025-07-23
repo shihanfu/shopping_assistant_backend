@@ -192,11 +192,12 @@ class HTMLContentEvaluator:
                         "reddit_get_post_url": helper.reddit_get_post_url,
                     }
                     target_url = eval(func, func_context)
-
+                self.logger.debug(f"target_url: {target_url}")
                 # Navigate temporary page to target URL
                 await temp_page.goto(target_url, wait_until="domcontentloaded")
 
                 locator = target["locator"]  # js element locator
+                self.logger.debug(f"locator: {locator}")
 
                 # empty, use the full page
                 if not locator.strip():

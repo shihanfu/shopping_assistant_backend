@@ -20,8 +20,7 @@ from hydra.core.global_hydra import GlobalHydra
 from rl_web_agent.agent import create_web_agent
 from rl_web_agent.env import WebAgentEnv
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Logger will be configured in main() after loading config
 logger = logging.getLogger(__name__)
 
 
@@ -48,6 +47,10 @@ async def run_agent_task():
 
         with initialize(version_base=None, config_path=config_dir):
             cfg = compose(config_name=config_name)
+
+        # Configure logging based on config
+        log_level = getattr(logging, cfg.log_level.upper())
+        logging.basicConfig(level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
         # Override browser directories to use temporary ones
         cfg.environment.browser.user_data_dir = temp_user_data_dir

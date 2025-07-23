@@ -539,7 +539,9 @@ def load_task_config(task_config_path: str) -> dict:
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     """Main entry point for the REPL"""
-    logging.basicConfig(level=cfg.log_level)
+    # Convert string log level to logging constant
+    log_level = getattr(logging, cfg.log_level.upper())
+    logging.basicConfig(level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     # Check if task_config is provided via Hydra config override (support both formats)
     task_config = None
@@ -549,8 +551,8 @@ def main(cfg: DictConfig) -> None:
     if hasattr(cfg, "task_config") and cfg.task_config:
         task_config_path = cfg.task_config
     # Check for hyphen version as alternative
-    elif hasattr(cfg, "task-config") and getattr(cfg, "task-config"):
-        task_config_path = getattr(cfg, "task-config")
+    elif hasattr(cfg, "task-config") and cfg["task-config"]:
+        task_config_path = cfg["task-config"]
 
     if task_config_path:
         try:
