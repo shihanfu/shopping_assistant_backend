@@ -9,6 +9,7 @@ from io import BytesIO
 from urllib.parse import urlparse
 
 import httpx
+from cache import ProxyCache
 from quart import Quart, Request, Response
 
 # ─── CONFIGURATION ──────────────────────────────────────────────────────────
@@ -17,6 +18,8 @@ CLIENT_LISTEN_PORT = 8080
 # API_GATEWAY_URL = "http://localhost:9090"  # Proxy server endpoint
 API_GATEWAY_URL = "https://3he3rx88gl.execute-api.us-east-1.amazonaws.com"
 CHUNK_SIZE = 1024 * 1024  # 1MB chunks
+ENABLE_CACHE = True  # Enable/disable caching
+CACHE_MAX_AGE = 300  # Default cache age in seconds
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("proxy-client-httpx")
@@ -104,6 +107,7 @@ class HTTPXProxyClient:
 
     def __init__(self):
         self.client = None
+        self.cache = ProxyCache(max_age_seconds=CACHE_MAX_AGE) if ENABLE_CACHE else None
 
     async def start(self):
         """Start the HTTP client"""
@@ -111,6 +115,10 @@ class HTTPXProxyClient:
             timeout = httpx.Timeout(300.0)  # 5 minute timeout
             self.client = httpx.AsyncClient(timeout=timeout)
             logger.info("HTTP client started")
+
+        if self.cache:
+            await self.cache.init()
+            logger.info("Cache initialized")
 
     async def stop(self):
         """Stop the HTTP client"""
@@ -190,6 +198,62 @@ class HTTPXProxyClient:
         # No rewrite found, return original
         logger.debug(f"No host rewrite configured for: {original_host}")
         return original_host
+
+    def _has_auth_headers(self, headers: list) -> bool:
+        """Check if request contains authentication headers (excluding cookies)"""
+        auth_headers = {"authorization", "x-api-key", "x-auth-token"}
+        for key, value in headers:
+            if key.lower() in auth_headers:
+                return True
+        return False
+
+    def _is_static_asset(self, path: str) -> bool:
+        """Check if the request path is for a static asset that should be cached"""
+        # Extract file extension from path
+        if "?" in path:
+            path = path.split("?")[0]  # Remove query parameters
+
+        if "." not in path:
+            return False
+
+        extension = path.split(".")[-1].lower()
+
+        # Static asset extensions to cache
+        static_extensions = {
+            # JavaScript
+            "js",
+            "mjs",
+            "jsx",
+            # CSS
+            "css",
+            "scss",
+            "sass",
+            "less",
+            # Images
+            "jpg",
+            "jpeg",
+            "png",
+            "gif",
+            "webp",
+            "svg",
+            "ico",
+            "bmp",
+            "tiff",
+            "avif",
+            # Fonts
+            "woff",
+            "woff2",
+            "ttf",
+            "eot",
+            "otf",
+            # Other static assets
+            "pdf",
+            "zip",
+            "tar",
+            "gz",
+        }
+
+        return extension in static_extensions
 
     async def _make_signed_request(self, method: str, url: str, headers: dict = None, data: bytes = None, json_data: dict = None, max_retries: int = 3) -> httpx.Response:
         """Make an HTTP request with AWS SigV4 authentication and automatic retry with progressive sleep"""
@@ -409,6 +473,31 @@ class HTTPXProxyClient:
         if original_host and original_host != target_host:
             logger.info(f"Original host: {original_host} → Rewritten to: {target_host}")
 
+        # Check cache first (only for GET requests of static assets with no auth headers)
+        cache_host = original_host or target_host
+        can_use_cache = self.cache and method.upper() == "GET" and self._is_static_asset(path) and not self._has_auth_headers(headers)
+
+        if can_use_cache:
+            logger.debug(f"Checking cache for {method} {cache_host}{path}")
+            cached_entry = await self.cache.get(cache_host, method, path, headers, body or b"")
+            if cached_entry:
+                from datetime import datetime
+
+                now = datetime.now()
+                age_seconds = (now - cached_entry.created_at).total_seconds() if hasattr(cached_entry, "created_at") else 0
+                expires_in = (cached_entry.expires_at - now).total_seconds() if cached_entry.expires_at else "never"
+                logger.info(f"🎯 CACHE HIT: {method} {cache_host}{path} (status: {cached_entry.status_code}, size: {len(cached_entry.body)} bytes, age: {age_seconds:.1f}s, expires in: {expires_in}s)")
+                return Response(response=cached_entry.body, status=cached_entry.status_code, headers=cached_entry.headers)
+            else:
+                logger.info(f"❌ CACHE MISS: {method} {cache_host}{path} - forwarding to upstream")
+        elif self.cache:
+            if method.upper() != "GET":
+                logger.debug(f"⏭️  CACHE SKIP: {method} {cache_host}{path} - non-GET request")
+            elif not self._is_static_asset(path):
+                logger.debug(f"📄 CACHE SKIP: {method} {cache_host}{path} - not a static asset")
+            elif self._has_auth_headers(headers):
+                logger.debug(f"🔒 CACHE SKIP: {method} {cache_host}{path} - has authentication headers")
+
         try:
             # Headers are already list of tuples, filter out proxy-specific headers
             header_list = []
@@ -513,6 +602,14 @@ class HTTPXProxyClient:
             else:
                 logger.info("No response body to receive")
 
+            # Cache the response if appropriate (same conditions as cache check)
+            if can_use_cache:
+                cached = await self.cache.put(cache_host, method, path, headers, body or b"", status_code, response_headers, response_body)
+                if cached:
+                    logger.info(f"💾 CACHED: {method} {cache_host}{path} (status: {status_code}, size: {len(response_body)} bytes)")
+                else:
+                    logger.debug(f"🚫 NOT CACHED: {method} {cache_host}{path} (status: {status_code}) - server cache policy rejected")
+
             # Create and return response
             logger.info(f"Returning response: {status_code} with {len(response_body)} bytes")
             return Response(response=response_body, status=status_code, headers=filtered_headers)
@@ -559,6 +656,8 @@ async def startup():
 async def shutdown():
     """Cleanup the proxy client on shutdown"""
     logger.info("Shutting down proxy client...")
+    if proxy_client.cache:
+        await proxy_client.cache.clear_expired()
     await proxy_client.stop()
 
 
@@ -581,6 +680,15 @@ async def main():
 
     print("Dynamic Host Rewrites: Enabled via 'x-target-host-rewrite' header")
     print("  Header format: 'original_host=new_host' or 'original_host:port=new_host:port'")
+
+    # Show cache configuration
+    if ENABLE_CACHE:
+        print(f"Response Cache: Enabled (max-age: {CACHE_MAX_AGE}s)")
+        print(f"  Cache directory: {proxy_client.cache.cache_dir}")
+        print("  Caches static assets (.js, .css, images, fonts) only")
+        print("  Ignores cookies, respects server cache-control directives")
+    else:
+        print("Response Cache: Disabled")
 
     # Start the server
     await app.run_task(host="0.0.0.0", port=CLIENT_LISTEN_PORT, debug=False)
