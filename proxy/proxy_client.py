@@ -297,6 +297,15 @@ class HTTPXProxyClient:
                 # Check if we should retry based on response
                 if should_retry(response=response):
                     last_response = response
+
+                    # Print response body for 502 errors
+                    if response.status_code == 502:
+                        try:
+                            response_body = response.text
+                            logger.error(f"502 Bad Gateway response body: {response_body}")
+                        except Exception as e:
+                            logger.error(f"Failed to read 502 response body: {e}")
+
                     if attempt < max_retries:
                         sleep_time = (2**attempt) * 1.0  # Exponential backoff: 1s, 2s, 4s, 8s...
                         logger.warning(f"Request failed with status {response.status_code}, retrying in {sleep_time}s (attempt {attempt + 1}/{max_retries + 1})")
@@ -609,6 +618,14 @@ class HTTPXProxyClient:
                     logger.info(f"💾 CACHED: {method} {cache_host}{path} (status: {status_code}, size: {len(response_body)} bytes)")
                 else:
                     logger.debug(f"🚫 NOT CACHED: {method} {cache_host}{path} (status: {status_code}) - server cache policy rejected")
+
+            # Print response body for 502 errors
+            if status_code == 502:
+                try:
+                    response_text = response_body.decode("utf-8", errors="replace")
+                    logger.error(f"502 Bad Gateway response body from upstream: {response_text}")
+                except Exception as e:
+                    logger.error(f"Failed to decode 502 response body: {e}")
 
             # Create and return response
             logger.info(f"Returning response: {status_code} with {len(response_body)} bytes")
