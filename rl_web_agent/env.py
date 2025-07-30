@@ -554,10 +554,6 @@ class WebAgentEnv:
                 tab_id = action_data["tab_id"]
                 await self.close_tab(tab_id)
 
-            elif action_name == "scroll":
-                direction = action_data["direction"]
-                await self.scroll(direction)
-
             elif action_name == "terminate":
                 answer = action_data.get("answer", "")
                 await self.terminate(answer)

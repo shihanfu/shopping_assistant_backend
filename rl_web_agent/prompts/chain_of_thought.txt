@@ -62,11 +62,7 @@ AVAILABLE ACTIONS (JSON format):
     {{"action": "close_tab", "tab_id": 0}}
     - tab_id: The ID number of the tab to close (REQUIRED, starts from 0)
 
-14. SCROLL PAGE - Scroll the page up or down
-    {{"action": "scroll", "direction": "down"}}
-    - direction: Direction to scroll, either "up" or "down" (REQUIRED)
-
-15. TERMINATE TASK - End the task with final answer
+14. TERMINATE TASK - End the task with final answer
     {{"action": "terminate", "answer": "final answer or result"}}
     - answer: Your final answer or result for the task (OPTIONAL, use empty string if no specific answer)
 
