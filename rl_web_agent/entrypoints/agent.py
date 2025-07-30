@@ -2,6 +2,7 @@
 """
 Agent - Main entry module for running WebAgent tasks
 Run with: python -m rl_web_agent.entrypoints.agent
+Override config: python -m rl_web_agent.entrypoints.agent environment.recording.enabled=true
 """
 
 import asyncio
@@ -14,17 +15,17 @@ import sys
 import tempfile
 from pathlib import Path
 
-from hydra import compose, initialize
-from hydra.core.global_hydra import GlobalHydra
+import hydra
+from omegaconf import DictConfig
 
 from rl_web_agent.agent import create_web_agent
 from rl_web_agent.env import WebAgentEnv
 
-# Logger will be configured in main() after loading config
+# Logger will be configured after Hydra setup
 logger = logging.getLogger(__name__)
 
 
-async def run_agent_task():
+async def run_agent_task(cfg: DictConfig):
     """Run the WebAgent until task completion (terminated=True)."""
     temp_user_data_dir = None
     temp_cache_dir = None
@@ -37,50 +38,46 @@ async def run_agent_task():
         logger.info(f"  User data: {temp_user_data_dir}")
         logger.info(f"  Cache: {temp_cache_dir}")
 
-        # Load configuration - use relative path from project root
-        config_dir = "../../rl_web_agent/conf"  # Relative path from entrypoints directory
-        config_name = "config"
-
-        # Initialize Hydra
-        if GlobalHydra().is_initialized():
-            GlobalHydra.instance().clear()
-
-        with initialize(version_base=None, config_path=config_dir):
-            cfg = compose(config_name=config_name)
-
-        # Configure logging based on config
-        log_level = getattr(logging, cfg.log_level.upper())
-        logging.basicConfig(level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-        # Suppress verbose botocore logging
-        logging.getLogger("botocore").setLevel(logging.WARNING)
-        logging.getLogger("boto3").setLevel(logging.WARNING)
-        logging.getLogger("urllib3").setLevel(logging.WARNING)
-        logging.getLogger("httpcore").setLevel(logging.WARNING)
-        logging.getLogger("aiobotocore").setLevel(logging.WARNING)
-
         # Override browser directories to use temporary ones
         cfg.environment.browser.user_data_dir = temp_user_data_dir
         cfg.environment.browser.cache_dir = temp_cache_dir
 
-        # Load test task
-        project_root = Path(__file__).parent.parent.parent
-        test_task_path = project_root / "thirdparty" / "webarena" / "config_files" / "508.json"
-        with open(test_task_path) as f:
-            test_task = json.load(f)
+        # Load task configuration
+        task_config = None
+        if hasattr(cfg, "task_config") and cfg.task_config:
+            # Load task from specified file
+            task_file = Path(cfg.task_config)
+            if task_file.exists():
+                with open(task_file) as f:
+                    task_config = json.load(f)
+                logger.info(f"Loaded task from: {task_file}")
+            else:
+                logger.error(f"Task file not found: {task_file}")
+                return
+        else:
+            # Load default test task
+            project_root = Path(__file__).parent.parent.parent
+            test_task_path = project_root / "thirdparty" / "webarena" / "config_files" / "506.json"
+            if test_task_path.exists():
+                with open(test_task_path) as f:
+                    task_config = json.load(f)
+                logger.info(f"Loaded default test task: {test_task_path}")
+            else:
+                logger.error(f"Default test task not found: {test_task_path}")
+                return
 
         # Create environment and agent
         env = WebAgentEnv(cfg.environment)
         agent = await create_web_agent(cfg.llm, cfg.agent)
 
         try:
-            # Setup environment with test task
-            await env.setup(test_task)
-            logger.info(f"Environment setup complete for task: {test_task['intent']}")
+            # Setup environment with task
+            await env.setup(task_config)
+            logger.info(f"Environment setup complete for task: {task_config['intent']}")
 
             # Run the task until completion (terminated=True)
             logger.info("Starting agent task execution - will run until terminated")
-            result = await agent.run_task(env, test_task["intent"])
+            result = await agent.run_task(env, task_config["intent"])
 
             # Print final results
             logger.info("=" * 60)
@@ -106,28 +103,23 @@ async def run_agent_task():
             logger.error(f"Task execution failed: {e}")
             raise
         finally:
-            # Cleanup environment
+            # Cleanup environment and agent
             await env.close()
-            logger.info("Environment closed")
+            await agent.close()
+            logger.info("Environment and agent closed")
 
     except Exception as e:
         logger.error(f"Agent execution failed: {e}")
         raise
     finally:
         # Clean up temporary directories
-        if temp_user_data_dir and os.path.exists(temp_user_data_dir):
-            try:
-                shutil.rmtree(temp_user_data_dir)
-                logger.info(f"Cleaned up temporary user data directory: {temp_user_data_dir}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up user data directory: {e}")
-
-        if temp_cache_dir and os.path.exists(temp_cache_dir):
-            try:
-                shutil.rmtree(temp_cache_dir)
-                logger.info(f"Cleaned up temporary cache directory: {temp_cache_dir}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up cache directory: {e}")
+        for temp_dir, name in [(temp_user_data_dir, "user data"), (temp_cache_dir, "cache")]:
+            if temp_dir and os.path.exists(temp_dir):
+                try:
+                    shutil.rmtree(temp_dir)
+                    logger.info(f"Cleaned up temporary {name} directory: {temp_dir}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up {name} directory: {e}")
 
 
 def signal_handler(signum, frame):
@@ -136,14 +128,32 @@ def signal_handler(signum, frame):
     sys.exit(0)
 
 
-def main():
-    """Main entry point"""
+@hydra.main(version_base=None, config_path="../../rl_web_agent/conf", config_name="config")
+def main(cfg: DictConfig) -> None:
+    """Main entry point with Hydra configuration"""
+    # Configure logging based on config
+    log_level = getattr(logging, cfg.log_level.upper())
+    logging.basicConfig(level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+    # Suppress verbose logging
+    logging.getLogger("botocore").setLevel(logging.WARNING)
+    logging.getLogger("boto3").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("aiobotocore").setLevel(logging.WARNING)
+
+    # Log configuration info
+    logger.info("Starting WebAgent with configuration:")
+    logger.info(f"  Recording enabled: {cfg.environment.recording.enabled}")
+    logger.info(f"  Browser headless: {cfg.environment.browser.launch_options.headless}")
+    logger.info(f"  Proxy enabled: {cfg.environment.proxy.enabled}")
+
     # Set up signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
     try:
-        asyncio.run(run_agent_task())
+        asyncio.run(run_agent_task(cfg))
     except KeyboardInterrupt:
         logger.info("Agent interrupted by user")
     except Exception as e:

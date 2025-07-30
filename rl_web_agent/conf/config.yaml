@@ -11,6 +11,15 @@
 # Web environment including browser, proxy, and script paths
 environment:
   incus_server_url: "http://127.0.0.1:8001"
+
+  # Task evaluation settings
+  evaluation:
+    enabled: false                     # Global flag to enable/disable task evaluation
+
+  # Recording configuration
+  recording:
+    enabled: false                     # Enable screen recording using QuickRecorder
+
   # Site configurations - mapping of site names to their hostnames
   # These hostnames will be rewritten to actual IP addresses by the proxy
   sites:
@@ -61,8 +70,8 @@ environment:
     # Context options
     context_options:
       viewport:
-        width: 1920                    # Browser viewport width in pixels
-        height: 1080                   # Browser viewport height in pixels
+        width: 1440                    # Browser viewport width in pixels
+        height: 900                   # Browser viewport height in pixels
       user_agent: null                 # User agent string to use
       extra_http_headers: null         # Will be set for host rewrites if needed
 

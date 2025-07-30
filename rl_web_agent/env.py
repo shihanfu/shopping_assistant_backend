@@ -74,6 +74,51 @@ class WebAgentEnv:
             finally:
                 self.trace_file_path = None
 
+    async def _start_recording(self) -> None:
+        """Start screen recording using QuickRecorder"""
+        try:
+            self.logger.info("Starting screen recording setup...")
+
+            # Create a new page for recording identification
+            recording_page = await self.context.new_page()
+
+            # Set the page title to the current UUID for window identification
+            await recording_page.evaluate(
+                f"""
+                document.title = "{self.uuid}";
+            """
+            )
+
+            # Give the page a moment to update the title
+            await asyncio.sleep(2)
+
+            # Use AppleScript to start QuickRecorder
+            applescript = f"""
+            tell application "QuickRecorder"
+                activate
+                record window titled "{self.uuid}" in application "Chromium"
+            end tell
+            """
+
+            # Execute AppleScript
+            import subprocess
+
+            result = subprocess.run(["osascript", "-e", applescript], capture_output=True, text=True, timeout=10)
+
+            if result.returncode == 0:
+                self.logger.info(f"Successfully started recording for window with UUID: {self.uuid}")
+            else:
+                self.logger.error(f"Failed to start recording: {result.stderr}")
+
+            await asyncio.sleep(2)
+
+            # Close the recording setup page
+            await recording_page.close()
+
+        except Exception as e:
+            self.logger.error(f"Error starting recording: {e}")
+            # Don't raise the exception - recording failure shouldn't stop the task
+
     async def _get_tabs_info(self) -> list[dict]:
         """Get information about all open tabs"""
         tabs_info = []
@@ -370,6 +415,10 @@ class WebAgentEnv:
             required_sites = self.task_config["sites"]
             await self.ensure_logged_in(required_sites)
 
+        # Start recording if enabled
+        if self.config.recording.enabled:
+            await self._start_recording()
+
         # Navigate to start URL from task config
         if self.task_config and "start_url" in self.task_config:
             await self.page.goto(self.task_config["start_url"], wait_until="domcontentloaded", timeout=self.config.browser.timeouts.page_load_domcontent)
@@ -504,6 +553,10 @@ class WebAgentEnv:
             elif action_name == "close_tab":
                 tab_id = action_data["tab_id"]
                 await self.close_tab(tab_id)
+
+            elif action_name == "scroll":
+                direction = action_data["direction"]
+                await self.scroll(direction)
 
             elif action_name == "terminate":
                 answer = action_data.get("answer", "")
@@ -884,7 +937,7 @@ class WebAgentEnv:
         content["model_answer"] = self.model_answer
 
         # Add evaluation information
-        if self.task_config and "eval" in self.task_config:
+        if self.task_config and "eval" in self.task_config and self.config.get("evaluation", {}).get("enabled", True):
             score = await self.evaluate_task()
             content["score"] = score
 
@@ -892,7 +945,7 @@ class WebAgentEnv:
             content["terminated"] = self.model_answer is not None or score != 0.0
         else:
             content["score"] = 0.0
-            content["terminated"] = False
+            content["terminated"] = self.model_answer is not None
 
         return content
 
