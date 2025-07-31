@@ -13,6 +13,10 @@ COPY pyproject.toml /workdir/pyproject.toml
 COPY uv.lock /workdir/uv.lock
 COPY thirdparty/verl/pyproject.toml /workdir/thirdparty/verl/pyproject.toml
 COPY thirdparty/verl/uv.lock /workdir/thirdparty/verl/uv.lock
+COPY thirdparty/webarena/setup.py /workdir/thirdparty/webarena/setup.py
+COPY thirdparty/webarena/setup.cfg /workdir/thirdparty/webarena/setup.cfg
+COPY thirdparty/webarena/requirements.txt /workdir/thirdparty/webarena/requirements.txt
+
 RUN python3.10 -m pip install --upgrade pip setuptools
 RUN cd /workdir && uv sync
 ENV CUDNN_PATH=/workdir/.venv/lib/python3.10/site-packages/nvidia/cudnn
