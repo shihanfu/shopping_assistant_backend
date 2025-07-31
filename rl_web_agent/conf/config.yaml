@@ -14,7 +14,7 @@ environment:
 
   # Task evaluation settings
   evaluation:
-    enabled: false                     # Global flag to enable/disable task evaluation
+    enabled: true # Global flag to enable/disable task evaluation
 
   # Recording configuration
   recording:
@@ -46,7 +46,7 @@ environment:
   browser:
     # Launch options
     launch_options:
-      headless: false                  # Show browser window (set true for CI/automation)
+      headless: true                  # Show browser window (set true for CI/automation)
       args:                           # Performance optimization args
         - "--disable-autofill-keyboard-accessory-view"
         - "--disable-autofill-profile-update"

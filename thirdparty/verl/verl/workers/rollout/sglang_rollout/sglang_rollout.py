@@ -406,9 +406,9 @@ class SGLangRollout(BaseRollout):
                 # NOTE(Chenyang): if you want to debug the SGLang engine output
                 # please set the following parameters
                 # Otherwise, it will make the engine run too slow
-                # log_level="INFO",
-                # log_requests=True,
-                # log_requests_level=2,
+                log_level="INFO",
+                log_requests=False,
+                log_requests_level=2,
                 # max_running_requests=1,
                 mm_attention_backend="fa3",
             )
