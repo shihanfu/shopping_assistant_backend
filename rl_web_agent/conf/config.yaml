@@ -14,7 +14,7 @@ environment:
 
   # Task evaluation settings
   evaluation:
-    enabled: true # Global flag to enable/disable task evaluation
+    enabled: true                      # Global flag to enable/disable task evaluation
 
   # Recording configuration
   recording:
@@ -132,9 +132,9 @@ llm:
 
   # Generation parameters (applied to all providers)
   generation:
-    temperature: 0.7           # Sampling temperature (0.0 = deterministic, 1.0 = very random)
+    temperature: 1            # Sampling temperature (0.0 = deterministic, 1.0 = very random)
     max_tokens: 1000          # Maximum tokens to generate
-    top_p: 0.9                # Nucleus sampling parameter
+    top_p: 0.95               # Nucleus sampling parameter
     frequency_penalty: 0.0    # Frequency penalty (OpenAI only)
     presence_penalty: 0.0     # Presence penalty (OpenAI only)
     stop: []                  # Stop sequences
@@ -143,7 +143,7 @@ llm:
   openai:
     api_key: "${oc.env:OPENAI_API_KEY}"              # OpenAI API key from environment
     base_url: "https://api.openai.com/v1"            # API base URL
-    model: "gpt-4o-mini"                                   # Default model
+    model: "gpt-4o-mini"                             # Default model
     timeout: 60                                      # Request timeout in seconds
     max_retries: 2                                   # Maximum retry attempts
 
@@ -152,6 +152,11 @@ llm:
     region: "us-east-1"                              # AWS region
     model_id: "arn:aws:bedrock:us-east-1:221281446110:inference-profile/us.anthropic.claude-sonnet-4-20250514-v1:0"  # Bedrock model ID
     timeout: 60                                      # Request timeout in seconds
+
+    # Thinking configuration (for Claude models that support reasoning)
+    thinking:
+      enabled: true                                 # Enable thinking mode
+      budget_tokens: 32000                           # Token budget for reasoning
 
 
 # ============================================================================

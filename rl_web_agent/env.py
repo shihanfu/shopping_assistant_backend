@@ -29,6 +29,11 @@ class WebAgentEnv:
         self.launched_containers: list[str] = []  # Track containers launched for this environment
         self.trace_file_path: str | None = None  # Path to the current trace file
 
+        # Disable evaluation if recording is enabled
+        if self.config.recording.enabled:
+            self.config.evaluation.enabled = False
+            self.logger.warning("Recording is enabled - evaluation disabled to avoid interference")
+
     @classmethod
     async def _ensure_playwright(cls) -> Playwright:
         """Ensure shared Playwright instance exists and return it"""
