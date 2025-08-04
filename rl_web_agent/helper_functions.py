@@ -178,10 +178,10 @@ class HelperFunctions:
 
     async def llm_fuzzy_match(self, pred: str, reference: str, question: str) -> float:
         """Use our in-house LLM for fuzzy matching evaluation"""
-        from rl_web_agent.llm import create_llm_client
+        from rl_web_agent.llm import get_llm_client
 
-        # Create LLM client using our config
-        llm_client = await create_llm_client(self.config.llm)
+        # Get singleton LLM client
+        llm_client = get_llm_client()
 
         # Construct evaluation prompt
         # Load prompt from file
@@ -204,10 +204,10 @@ class HelperFunctions:
 
     async def llm_ua_match(self, pred: str, reference: str, question: str) -> float:
         """Use our in-house LLM for unachievable task matching"""
-        from rl_web_agent.llm import create_llm_client
+        from rl_web_agent.llm import get_llm_client
 
-        # Create LLM client using our config
-        llm_client = await create_llm_client(self.config.llm)
+        # Get singleton LLM client
+        llm_client = get_llm_client()
 
         # Load prompt from file
         from rl_web_agent.prompts import load_prompt
@@ -240,31 +240,31 @@ def get_helper_functions(config, extra_headers) -> HelperFunctions:
     return _helper_instance
 
 
-def shopping_get_latest_order_url(config=None) -> str:
+def shopping_get_latest_order_url(config=None, extra_headers=None) -> str:
     """Global function for backward compatibility"""
-    helper = get_helper_functions(config)
+    helper = get_helper_functions(config, extra_headers or {})
     return helper.shopping_get_latest_order_url()
 
 
-def shopping_get_sku_latest_review_author(sku: str, config=None) -> str:
+def shopping_get_sku_latest_review_author(sku: str, config=None, extra_headers=None) -> str:
     """Global function for backward compatibility"""
-    helper = get_helper_functions(config)
+    helper = get_helper_functions(config, extra_headers or {})
     return helper.shopping_get_sku_latest_review_author(sku)
 
 
-def shopping_get_sku_latest_review_rating(sku: str, config=None) -> str:
+def shopping_get_sku_latest_review_rating(sku: str, config=None, extra_headers=None) -> str:
     """Global function for backward compatibility"""
-    helper = get_helper_functions(config)
+    helper = get_helper_functions(config, extra_headers or {})
     return helper.shopping_get_sku_latest_review_rating(sku)
 
 
-def reddit_get_post_url(url: str, config=None) -> str:
+def reddit_get_post_url(url: str, config=None, extra_headers=None) -> str:
     """Global function for backward compatibility"""
-    helper = get_helper_functions(config)
+    helper = get_helper_functions(config, extra_headers or {})
     return helper.reddit_get_post_url(url)
 
 
-async def gitlab_get_project_member_role(page, account_name: str, config=None) -> str:
+async def gitlab_get_project_member_role(page, account_name: str, config=None, extra_headers=None) -> str:
     """Global function for backward compatibility"""
-    helper = get_helper_functions(config)
+    helper = get_helper_functions(config, extra_headers or {})
     return await helper.gitlab_get_project_member_role(page, account_name)

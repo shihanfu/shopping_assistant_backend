@@ -12,7 +12,7 @@ from typing import Any
 from omegaconf import DictConfig
 
 from rl_web_agent.env import WebAgentEnv
-from rl_web_agent.llm import create_llm_client
+from rl_web_agent.llm import get_llm_client
 
 
 class Colors:
@@ -77,7 +77,7 @@ class WebAgent:
 
     async def setup(self):
         """Initialize the LLM provider"""
-        self.llm_provider = await create_llm_client(self.llm_config)
+        self.llm_provider = get_llm_client()
 
     async def close(self):
         """Clean up resources"""

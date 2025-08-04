@@ -14,6 +14,8 @@ import aioboto3
 import openai
 from omegaconf import DictConfig
 
+from rl_web_agent.config_store import ConfigStore
+
 
 class LLMProvider(ABC):
     """Abstract base class for LLM providers"""
@@ -174,8 +176,6 @@ class BedrockProvider(LLMProvider):
             # Extract content string
             output = response["output"]["message"]
             content = ""
-            print(output)
-            print(response)
             # Process content blocks
             if "content" in output:
                 for content_block in output["content"]:
@@ -204,9 +204,35 @@ class BedrockProvider(LLMProvider):
                 if msg["role"] == "system":
                     system_messages.append({"text": msg["content"]})
                 elif msg["role"] == "tool":
-                    # Handle tool response messages
-                    converse_messages.append({"role": "user", "content": [{"text": f"Tool result: {msg['content']}"}]})
+                    # Handle tool response messages - format as toolResult
+                    tool_result_content = msg["content"]
+                    tool_call_id = msg["tool_call_id"]
+
+                    # Parse the tool result content
+                    try:
+                        result_data = json.loads(tool_result_content)
+                        content = [{"json": result_data}]
+                    except (json.JSONDecodeError, TypeError):
+                        # If not valid JSON, treat as text
+                        content = [{"text": str(tool_result_content)}]
+
+                    converse_messages.append({"role": "user", "content": [{"toolResult": {"toolUseId": tool_call_id, "content": content}}]})
+                elif msg["role"] == "assistant" and msg.get("tool_calls"):
+                    # Handle assistant messages with tool calls
+                    content_blocks = []
+
+                    # Add text content if present
+                    if msg.get("content"):
+                        content_blocks.append({"text": msg["content"]})
+
+                    # Convert tool calls to Bedrock toolUse format
+                    for tool_call in msg["tool_calls"]:
+                        tool_use_block = {"toolUse": {"toolUseId": tool_call["id"], "name": tool_call["function"]["name"], "input": json.loads(tool_call["function"]["arguments"])}}
+                        content_blocks.append(tool_use_block)
+
+                    converse_messages.append({"role": "assistant", "content": content_blocks})
                 else:
+                    # Regular user/assistant messages
                     converse_messages.append({"role": msg["role"], "content": [{"text": msg["content"]}]})
 
             # Convert OpenAI tools format to Bedrock format
@@ -355,7 +381,27 @@ class LLMClient:
         await self.close()
 
 
-# Convenience function for quick usage
-async def create_llm_client(config: DictConfig) -> LLMClient:
-    """Create and return an LLM client instance"""
-    return LLMClient(config)
+# Global singleton instance
+_llm_client_instance = None
+
+
+def get_llm_client() -> LLMClient:
+    """Get singleton LLM client instance from global config store"""
+    global _llm_client_instance
+
+    if _llm_client_instance is None:
+        try:
+            cfg = ConfigStore.get()
+            llm_config = cfg.llm
+            _llm_client_instance = LLMClient(llm_config)
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize LLM client from config store: {e}") from e
+
+    return _llm_client_instance
+
+
+def reset_llm_client() -> None:
+    """Reset the singleton LLM client instance (useful for testing)"""
+    global _llm_client_instance
+    _llm_client_instance = None
+    ConfigStore.reset()

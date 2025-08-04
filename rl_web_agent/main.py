@@ -5,6 +5,7 @@ import logging
 import hydra
 from omegaconf import DictConfig
 
+from rl_web_agent.config_store import ConfigStore
 from rl_web_agent.env import WebAgentEnv
 
 # Fake task config for testing
@@ -14,6 +15,9 @@ FAKE_TASK_CONFIG = {"sites": ["shopping"], "task_id": 1, "require_login": False,
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     """Main entry point for the web agent"""
+    # Save config globally for singleton access
+    ConfigStore.set(cfg)
+
     logging.basicConfig(level=cfg.log_level)
 
     # Suppress verbose botocore logging

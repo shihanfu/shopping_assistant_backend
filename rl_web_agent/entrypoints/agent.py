@@ -19,6 +19,7 @@ import hydra
 from omegaconf import DictConfig
 
 from rl_web_agent.agent import create_web_agent
+from rl_web_agent.config_store import ConfigStore
 from rl_web_agent.env import WebAgentEnv
 
 # Logger will be configured after Hydra setup
@@ -57,7 +58,7 @@ async def run_agent_task(cfg: DictConfig):
         else:
             # Load default test task
             project_root = Path(__file__).parent.parent.parent
-            test_task_path = project_root / "thirdparty" / "webarena" / "config_files" / "506.json"
+            test_task_path = project_root / "thirdparty" / "webarena" / "config_files" / "22.json"
             if test_task_path.exists():
                 with open(test_task_path) as f:
                     task_config = json.load(f)
@@ -131,6 +132,9 @@ def signal_handler(signum, frame):
 @hydra.main(version_base=None, config_path="../../rl_web_agent/conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     """Main entry point with Hydra configuration"""
+    # Save config globally for singleton access
+    ConfigStore.set(cfg)
+
     # Configure logging based on config
     log_level = getattr(logging, cfg.log_level.upper())
     logging.basicConfig(level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")

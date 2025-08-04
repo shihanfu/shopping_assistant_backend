@@ -968,13 +968,14 @@ class WebAgentEnv:
         from rl_web_agent.evaluator import evaluate_task
 
         # Run evaluation using our simplified evaluator
-        # Pass both task config and environment config with extra headers
-        evaluation_context = {
-            "task_config": self.task_config,
-            "env_config": self.config,  # This has accounts, sites, etc.
-            "extra_headers": self.extra_headers,
-        }
-        score = await evaluate_task(answer=self.model_answer or "", page=self.page, config=evaluation_context)
+        # Pass individual parameters directly
+        score = await evaluate_task(
+            answer=self.model_answer or "",
+            page=self.page,
+            task_config=self.task_config,
+            env_config=self.config,  # This has accounts, sites, etc.
+            extra_headers=self.extra_headers,
+        )
 
         self.logger.info(f"Task evaluation score: {score}")
         return score

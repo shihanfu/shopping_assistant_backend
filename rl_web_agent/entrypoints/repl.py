@@ -539,6 +539,11 @@ def load_task_config(task_config_path: str) -> dict:
 @hydra.main(version_base=None, config_path="../conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     """Main entry point for the REPL"""
+    # Save config globally for singleton access
+    from rl_web_agent.config_store import ConfigStore
+
+    ConfigStore.set(cfg)
+
     # Convert string log level to logging constant
     log_level = getattr(logging, cfg.log_level.upper())
     logging.basicConfig(level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
