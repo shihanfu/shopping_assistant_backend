@@ -42,6 +42,7 @@ dependencies = [
   "openai>=1.86.0",
   "text-generation>=0.7.0",
   "playwright==1.53.0",
+  "beartype>=0.12.0",
 ]
 requires-python = ">=3.10"
 

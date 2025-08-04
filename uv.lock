@@ -44,7 +44,7 @@ conflicts = [[
 
 [[manifest.dependency-metadata]]
 name = "flash-attn"
-version = "2.7.4.post1"
+version = "2.8.2"
 requires-dist = ["torch", "einops"]
 
 [[package]]
@@ -4891,6 +4891,7 @@ source = { editable = "." }
 dependencies = [
     { name = "aioboto3" },
     { name = "aioconsole" },
+    { name = "beartype" },
     { name = "boto3" },
     { name = "botocore" },
     { name = "datasets" },
@@ -4967,6 +4968,7 @@ requires-dist = [
     { name = "aioconsole", specifier = ">=0.8.1" },
     { name = "aiolimiter", marker = "extra == 'webarena'", specifier = ">=1.2.1" },
     { name = "apex", marker = "extra == 'compile'", git = "https://github.com/NVIDIA/apex.git" },
+    { name = "beartype", specifier = ">=0.12.0" },
     { name = "beartype", marker = "extra == 'webarena'", specifier = "==0.12.0" },
     { name = "boto3", specifier = ">=1.38.27" },
     { name = "botocore", specifier = ">=1.38.27" },
