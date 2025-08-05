@@ -21,6 +21,7 @@ from hydra import compose, initialize
 from hydra.core.global_hydra import GlobalHydra
 
 from rl_web_agent.agent import create_web_agent
+from rl_web_agent.config_store import ConfigStore
 from rl_web_agent.env import WebAgentEnv
 
 # Logger will be configured in main() after loading config
@@ -209,6 +210,9 @@ async def run_batch_tasks(task_ids: list[str], tasks_dir: Path, output_dir: Path
 
     with initialize(version_base=None, config_path=config_dir):
         cfg = compose(config_name=config_name)
+
+    # Save config globally for singleton access
+    ConfigStore.set(cfg)
 
     # Configure logging
     log_level = getattr(logging, cfg.log_level.upper())
