@@ -121,7 +121,8 @@ async def generate_conversation_async(bedrock_client,
 
     if response['stopReason'] == 'tool_use':
         tool_requests = output_message['content']
-        
+        tool_result_contents = []
+
         for tool_request in tool_requests:
             if 'toolUse' in tool_request:
                 tool = tool_request['toolUse']
@@ -129,7 +130,7 @@ async def generate_conversation_async(bedrock_client,
                 tool_input = tool['input']
                 tool_use_id = tool['toolUseId']
                 print(f"🛠️ Tool used: {tool_name} with input {tool_input}")
-                
+
                 # Handle async tool calls
                 try:
                     if tool_name == 'search':
@@ -145,7 +146,6 @@ async def generate_conversation_async(bedrock_client,
                             "content": [{"text": result_text}]
                         }
                     else:
-                        # fallback: unknown tool
                         tool_result = {
                             "toolUseId": tool_use_id,
                             "content": [{"text": f"Unknown tool: {tool_name}"}],
@@ -158,34 +158,35 @@ async def generate_conversation_async(bedrock_client,
                         "content": [{"text": f"Error executing tool {tool_name}: {str(e)}"}],
                         "status": "error"
                     }
-                    
-                # Add tool result back to message list
-                tool_result_message = {
-                    "role": "user",
-                    "content": [{"toolResult": tool_result}]
-                }
-                messages.append(tool_result_message)
 
-                # Second model call: send tool result to model
-                try:
-                    response = bedrock_client.converse(
-                        modelId=model_id,
-                        messages=messages,
-                        system=system_prompts,
-                        inferenceConfig=inference_config,
-                        additionalModelRequestFields=additional_model_fields,
-                        toolConfig=tool_config
-                    )
-                    output_message = response['output']['message']
-                    messages.append(output_message)
-                except Exception as e:
-                    logger.error(f"Error in second model call: {e}")
-                    # Create a fallback response
-                    output_message = {
-                        "role": "assistant",
-                        "content": [{"text": f"I encountered an error processing the tool result: {str(e)}"}]
-                    }
-                    messages.append(output_message)
+                tool_result_contents.append({"toolResult": tool_result})
+
+        if tool_result_contents:
+            # Add a single user message containing ALL toolResult blocks
+            messages.append({
+                "role": "user",
+                "content": tool_result_contents
+            })
+
+            # Single follow-up model call after providing all tool results
+            try:
+                response = bedrock_client.converse(
+                    modelId=model_id,
+                    messages=messages,
+                    system=system_prompts,
+                    inferenceConfig=inference_config,
+                    additionalModelRequestFields=additional_model_fields,
+                    toolConfig=tool_config
+                )
+                output_message = response['output']['message']
+                messages.append(output_message)
+            except Exception as e:
+                logger.error(f"Error in follow-up model call: {e}")
+                output_message = {
+                    "role": "assistant",
+                    "content": [{"text": f"I encountered an error processing the tool results: {str(e)}"}]
+                }
+                messages.append(output_message)
 
     return messages, output_message
 
