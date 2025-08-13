@@ -11,6 +11,8 @@ from urllib.parse import urlparse
 import httpx
 from cache import ProxyCache
 from quart import Quart, Request, Response
+import argparse
+import os
 
 # ─── CONFIGURATION ──────────────────────────────────────────────────────────
 
@@ -20,6 +22,7 @@ API_GATEWAY_URL = "https://3he3rx88gl.execute-api.us-east-1.amazonaws.com"
 CHUNK_SIZE = 1024 * 1024  # 1MB chunks
 ENABLE_CACHE = True  # Enable/disable caching
 CACHE_MAX_AGE = 300  # Default cache age in seconds
+NO_PROXY_HOSTS: list[str] = ["localhost:5173", "localhost:5000"]  # Hosts to bypass proxy (exact or domain suffix like .example.com)
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("proxy-client-httpx")
@@ -108,6 +111,55 @@ class HTTPXProxyClient:
     def __init__(self):
         self.client = None
         self.cache = ProxyCache(max_age_seconds=CACHE_MAX_AGE) if ENABLE_CACHE else None
+        self.no_proxy = False
+        self.no_proxy_hosts: list[str] = [h.lower() for h in NO_PROXY_HOSTS]
+
+    def _should_bypass_proxy(self, netloc: str) -> bool:
+        """Return True if the given host:port should bypass the proxy.
+
+        Matching rules:
+        - Exact match on netloc (host or host:port)
+        - Exact match on hostname (ignoring port)
+        - Domain suffix match when pattern starts with '.' or '*.' (e.g., '.example.com')
+        """
+        if not self.no_proxy_hosts:
+            return False
+
+        candidate = netloc.lower()
+
+        # Extract hostname without port (simple parsing; handles common cases and [ipv6])
+        hostname_only = candidate
+        if candidate.startswith("[") and "]" in candidate:
+            end = candidate.find("]")
+            host_core = candidate[1:end]
+            rest = candidate[end + 1 :]
+            hostname_only = host_core
+        else:
+            if ":" in candidate:
+                # Split once from the right to avoid IPv6 confusion (best-effort)
+                parts = candidate.rsplit(":", 1)
+                if len(parts) == 2 and parts[1].isdigit():
+                    hostname_only = parts[0]
+
+        for pattern in self.no_proxy_hosts:
+            pat = pattern.strip().lower()
+            if not pat:
+                continue
+            # Direct netloc exact match (host or host:port)
+            if candidate == pat:
+                return True
+            # Hostname-only exact match (ignore port)
+            if hostname_only == pat:
+                return True
+            # Domain suffix match: '.example.com' or '*.example.com'
+            if pat.startswith("*."):
+                suffix = pat[1:]  # keep leading dot in suffix
+                if hostname_only.endswith(suffix):
+                    return True
+            elif pat.startswith('.'):
+                if hostname_only.endswith(pat):
+                    return True
+        return False
 
     async def start(self):
         """Start the HTTP client"""
@@ -445,10 +497,16 @@ class HTTPXProxyClient:
                 if parsed.query:
                     request_path += "?" + parsed.query
                 original_target_host = parsed.netloc
+                request_scheme = parsed.scheme
                 logger.debug(f"Parsed URL - original target_host: {original_target_host}, path: {request_path}")
             else:
                 request_path = path
-                original_target_host = request.headers.get("Host", "")
+                original_target_host = ""
+                for hk, hv in request.headers.items():
+                    if hk.lower() == "host":
+                        original_target_host = hv
+                        break
+                request_scheme = None
                 logger.debug(f"Direct request - original target_host: {original_target_host}, path: {request_path}")
 
             # Apply host rewriting - convert headers to list of tuples
@@ -461,8 +519,13 @@ class HTTPXProxyClient:
             body_size = len(body) if body else 0
             logger.info(f"Request body size: {body_size} bytes")
 
+            # Decide routing mode for this host
+            force_direct = self._should_bypass_proxy(original_target_host)
+            if force_direct:
+                logger.info(f"Bypassing proxy for host: {original_target_host}")
+
             # Handle request with unified chunking approach
-            response = await self._handle_request(target_host, request_path, method, request_headers, body, original_target_host)
+            response = await self._handle_request(target_host, request_path, method, request_headers, body, original_target_host, request_scheme, force_direct)
 
             elapsed = time.time() - request_start
             logger.info(f"=== Request completed in {elapsed:.3f}s ===")
@@ -476,11 +539,52 @@ class HTTPXProxyClient:
             error_message = f"Proxy client error: {exc}"
             return Response(response=error_message, status=502, headers={"Content-Type": "text/plain", "Connection": "close"})
 
-    async def _handle_request(self, target_host: str, path: str, method: str, headers: list, body: bytes, original_host: str = None) -> Response:
+    async def _handle_request(self, target_host: str, path: str, method: str, headers: list, body: bytes, original_host: str = None, scheme: str = None, force_direct: bool = False) -> Response:
         """Handle all requests with unified chunking approach"""
         logger.info(f"Processing unified request for {target_host}{path}")
         if original_host and original_host != target_host:
             logger.info(f"Original host: {original_host} → Rewritten to: {target_host}")
+
+        # Direct mode: bypass API gateway and forward request to target host (per-host or forced)
+        if force_direct:
+            try:
+                # Headers are already list of tuples, filter out proxy-specific headers
+                header_list = []
+                for key, value in headers:
+                    if key.lower() not in ("x-target-host-rewrite", "remote-addr", "proxy-connection"):
+                        header_list.append((key, value))
+                    else:
+                        logger.debug(f"Removed proxy-specific header: {key}")
+
+                # Ensure Host header matches target_host
+                host_set = False
+                for i, (k, v) in enumerate(header_list):
+                    if k.lower() == "host":
+                        header_list[i] = (k, target_host)
+                        host_set = True
+                        break
+                if not host_set:
+                    header_list.append(("Host", target_host))
+
+                req_scheme = scheme if scheme in ("http", "https") else "http"
+                upstream_url = f"{req_scheme}://{target_host}{path}"
+                logger.info(f"Direct forwarding {method} {upstream_url}")
+
+                start_time = time.time()
+                resp = await self.client.request(method, upstream_url, headers=header_list, content=body)
+                elapsed = time.time() - start_time
+                logger.debug(f"Direct upstream response: {resp.status_code} (took {elapsed:.3f}s)")
+
+                filtered_headers = []
+                for k, v in resp.headers.multi_items():
+                    if k.lower() not in ("content-length", "transfer-encoding"):
+                        filtered_headers.append((k, v))
+
+                return Response(response=resp.content, status=resp.status_code, headers=filtered_headers)
+            except Exception as exc:
+                logger.error(f"Direct forwarding failed: {exc}")
+                error_message = f"Direct forwarding error: {exc}"
+                return Response(response=error_message, status=502, headers={"Content-Type": "text/plain", "Connection": "close"})
 
         # Check cache first (only for GET requests of static assets with no auth headers)
         cache_host = original_host or target_host
@@ -683,9 +787,60 @@ async def shutdown():
 
 async def main():
     """Main application entry point"""
+    global NO_PROXY
+    global NO_PROXY_HOSTS
+
+    # Parse CLI arguments
+    parser = argparse.ArgumentParser(description="HTTP proxy client")
+    # No global --no-proxy flag; use host-based configuration instead
+    parser.add_argument("--no-proxy-host", action="append", default=None, help="Host to bypass proxy (can be used multiple times). Supports exact host, host:port, or domain suffix like .example.com")
+    parser.add_argument("--no-proxy-hosts", type=str, default="", help="Comma-separated list of hosts to bypass proxy")
+    args, _ = parser.parse_known_args()
+    proxy_client.no_proxy = False
+    # Collect hosts from flags
+    hosts: list[str] = []
+    if args.no_proxy_hosts:
+        for item in args.no_proxy_hosts.split(","):
+            cleaned = item.strip()
+            if cleaned:
+                hosts.append(cleaned)
+    if args.no_proxy_host:
+        for item in args.no_proxy_host:
+            cleaned = item.strip()
+            if cleaned:
+                hosts.append(cleaned)
+    # Also support NO_PROXY environment variable (standard), comma-separated
+    env_no_proxy = os.environ.get("NO_PROXY") or os.environ.get("no_proxy")
+    if env_no_proxy:
+        for item in env_no_proxy.split(","):
+            cleaned = item.strip()
+            if cleaned:
+                hosts.append(cleaned)
+    # Merge global NO_PROXY_HOSTS with dynamic sources; dedupe case-insensitively
+    combined_hosts: list[str] = []
+    seen_keys: set[str] = set()
+    for item in list(NO_PROXY_HOSTS) + hosts:
+        normalized = item.strip()
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        combined_hosts.append(normalized)
+
+    if combined_hosts:
+        NO_PROXY_HOSTS = combined_hosts
+        proxy_client.no_proxy_hosts = [h.lower() for h in combined_hosts]
+
     print(f"Proxy client listening on 0.0.0.0:{CLIENT_LISTEN_PORT}")
     print(f"Configure your application to use http://localhost:{CLIENT_LISTEN_PORT} as HTTP proxy")
     print(f"AWS Authentication: {'Enabled' if aws_auth.auth else 'Disabled'}")
+    print("Proxy Mode: API Gateway (host-based bypass supported)")
+    if proxy_client.no_proxy_hosts:
+        print("No-Proxy Hosts:")
+        for h in proxy_client.no_proxy_hosts:
+            print(f"  - {h}")
 
     # Show host rewrite configuration
     if TARGET_HOST_REWRITES:

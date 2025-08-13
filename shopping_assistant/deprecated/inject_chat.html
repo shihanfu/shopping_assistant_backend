@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Widget Injection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .code-block {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛍️ Shopping Assistant Chat Widget</h1>
+        <p>This tool helps you inject the Rufus shopping assistant chat widget into the shopping website.</p>
+        
+        <div class="warning">
+            <strong>⚠️ Important:</strong> Make sure the chat server is running on <code>http://localhost:5000</code> before injecting the widget.
+        </div>
+
+        <h2>Method 1: Browser Console Injection</h2>
+        <p>Open the shopping website (<a href="http://metis.lti.cs.cmu.edu:7770/" target="_blank">http://metis.lti.cs.cmu.edu:7770/</a>) and run this code in the browser console:</p>
+        
+        <div class="code-block">
+// Load the chat widget script
+const script = document.createElement('script');
+script.src = 'http://localhost:5000/embed.js';
+document.head.appendChild(script);
+        </div>
+
+        <button class="button" onclick="copyToClipboard('const script = document.createElement(\'script\');\nscript.src = \'http://localhost:5000/embed.js\';\ndocument.head.appendChild(script);')">
+            Copy Console Code
+        </button>
+
+        <h2>Method 2: Bookmarklet</h2>
+        <p>Create a bookmark with this URL (drag the link to your bookmarks bar):</p>
+        
+        <div class="code-block">
+javascript:(function(){const script=document.createElement('script');script.src='http://localhost:5000/embed.js';document.head.appendChild(script);})();
+        </div>
+
+        <a href="javascript:(function(){const script=document.createElement('script');script.src='http://localhost:5000/embed.js';document.head.appendChild(script);})();" class="button">
+            Drag to Bookmarks Bar
+        </a>
+
+        <h2>Method 3: Manual Script Tag</h2>
+        <p>Add this script tag to the shopping website's HTML (if you have access):</p>
+        
+        <div class="code-block">
+&lt;script src="http://localhost:5000/embed.js"&gt;&lt;/script&gt;
+        </div>
+
+        <h2>Testing the Chat Server</h2>
+        <p>Test if the chat server is running:</p>
+        <button class="button" onclick="testServer()">Test Server Connection</button>
+        <div id="serverStatus"></div>
+
+        <h2>Features</h2>
+        <ul>
+            <li>🛍️ Floating chat widget that appears on the shopping website</li>
+            <li>💬 Real-time conversation with Rufus, the shopping assistant</li>
+            <li>🔍 Can search for products and visit product pages</li>
+            <li>📱 Responsive design that works on mobile and desktop</li>
+            <li>🎨 Beautiful gradient design with smooth animations</li>
+            <li>⚡ Fast and lightweight</li>
+        </ul>
+
+        <h2>Usage</h2>
+        <ol>
+            <li>Start the chat server: <code>python -m shopping_assistant.chat_app</code></li>
+            <li>Navigate to the shopping website: <a href="http://metis.lti.cs.cmu.edu:7770/" target="_blank">http://metis.lti.cs.cmu.edu:7770/</a></li>
+            <li>Inject the widget using one of the methods above</li>
+            <li>Click the shopping bag icon (🛍️) in the bottom-right corner</li>
+            <li>Start chatting with Rufus!</li>
+        </ol>
+
+        <div class="success">
+            <strong>✅ Success!</strong> Once injected, you'll see a floating shopping bag icon in the bottom-right corner of the website. Click it to open the chat interface.
+        </div>
+    </div>
+
+    <script>
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(function() {
+                alert('Code copied to clipboard!');
+            }, function(err) {
+                console.error('Could not copy text: ', err);
+            });
+        }
+
+        async function testServer() {
+            const statusDiv = document.getElementById('serverStatus');
+            statusDiv.innerHTML = 'Testing connection...';
+            
+            try {
+                const response = await fetch('http://localhost:5000/health');
+                const data = await response.json();
+                
+                if (response.ok) {
+                    statusDiv.innerHTML = '<div class="success">✅ Server is running and healthy!</div>';
+                } else {
+                    statusDiv.innerHTML = '<div class="warning">⚠️ Server responded but with an error</div>';
+                }
+            } catch (error) {
+                statusDiv.innerHTML = '<div class="warning">❌ Server is not running. Please start the chat server first.</div>';
+            }
+        }
+    </script>
+</body>
+</html> 
