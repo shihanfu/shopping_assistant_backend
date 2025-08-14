@@ -119,7 +119,8 @@ async def generate_conversation_async(bedrock_client,
         messages.append(output_message)
         return messages, output_message
 
-    if response['stopReason'] == 'tool_use':
+    # Continue fulfilling tool_use until the model returns a normal assistant message
+    while response['stopReason'] == 'tool_use':
         tool_requests = output_message['content']
         tool_result_contents = []
 
@@ -137,13 +138,15 @@ async def generate_conversation_async(bedrock_client,
                         result_text = await search(tool_input['query'])
                         tool_result = {
                             "toolUseId": tool_use_id,
-                            "content": [{"text": result_text}]
+                            "content": [{"text": result_text}],
+                            "status": "success"
                         }
                     elif tool_name == 'visit_product':
                         result_text = await visit_product(tool_input['product_url'])
                         tool_result = {
                             "toolUseId": tool_use_id,
-                            "content": [{"text": result_text}]
+                            "content": [{"text": result_text}],
+                            "status": "success"
                         }
                     else:
                         tool_result = {
@@ -161,32 +164,35 @@ async def generate_conversation_async(bedrock_client,
 
                 tool_result_contents.append({"toolResult": tool_result})
 
-        if tool_result_contents:
-            # Add a single user message containing ALL toolResult blocks
-            messages.append({
-                "role": "user",
-                "content": tool_result_contents
-            })
+        if not tool_result_contents:
+            break
 
-            # Single follow-up model call after providing all tool results
-            try:
-                response = bedrock_client.converse(
-                    modelId=model_id,
-                    messages=messages,
-                    system=system_prompts,
-                    inferenceConfig=inference_config,
-                    additionalModelRequestFields=additional_model_fields,
-                    toolConfig=tool_config
-                )
-                output_message = response['output']['message']
-                messages.append(output_message)
-            except Exception as e:
-                logger.error(f"Error in follow-up model call: {e}")
-                output_message = {
-                    "role": "assistant",
-                    "content": [{"text": f"I encountered an error processing the tool results: {str(e)}"}]
-                }
-                messages.append(output_message)
+        # Add a single user message containing ALL toolResult blocks
+        messages.append({
+            "role": "user",
+            "content": tool_result_contents
+        })
+
+        # Follow-up model call after providing all tool results
+        try:
+            response = bedrock_client.converse(
+                modelId=model_id,
+                messages=messages,
+                system=system_prompts,
+                inferenceConfig=inference_config,
+                additionalModelRequestFields=additional_model_fields,
+                toolConfig=tool_config
+            )
+            output_message = response['output']['message']
+            messages.append(output_message)
+        except Exception as e:
+            logger.error(f"Error in follow-up model call: {e}")
+            output_message = {
+                "role": "assistant",
+                "content": [{"text": f"I encountered an error processing the tool results: {str(e)}"}]
+            }
+            messages.append(output_message)
+            break
 
     return messages, output_message
 
