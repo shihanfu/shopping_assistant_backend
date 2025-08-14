@@ -150,7 +150,7 @@ llm:
   # AWS Bedrock Configuration
   bedrock:
     region: "us-east-1"                              # AWS region
-    model_id: "arn:aws:bedrock:us-east-1:221281446110:inference-profile/us.anthropic.claude-sonnet-4-20250514-v1:0"  # Bedrock model ID
+    model_id: "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-sonnet-4-20250514-v1:0"  # Bedrock model ID
     timeout: 60                                      # Request timeout in seconds
 
     # Thinking configuration (for Claude models that support reasoning)
