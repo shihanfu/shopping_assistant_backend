@@ -206,83 +206,84 @@ class WebAgentEnv:
             elapsed = asyncio.get_event_loop().time() - start_time
             self.logger.info(f"✅ All containers online after {elapsed:.1f}s!")
 
-    async def login_to_site(self, site_name: str) -> None:
-        """Login to a specific site using hardcoded login logic"""
-        if not hasattr(self.config, "accounts") or site_name not in self.config.accounts:
-            self.logger.warning(f"No account configured for site: {site_name}")
-            return
+    # async def login_to_site(self, site_name: str) -> None:
+    #     """Login to a specific site using hardcoded login logic"""
+    #     if not hasattr(self.config, "accounts") or site_name not in self.config.accounts:
+    #         self.logger.warning(f"No account configured for site: {site_name}")
+    #         return
 
-        account = self.config.accounts[site_name]
-        username = account["username"]
-        password = account["password"]
+    #     account = self.config.accounts[site_name]
+    #     username = account["username"]
+    #     password = account["password"]
 
-        # Create a dedicated login page
-        login_page = await self.context.new_page()
+    #     # Create a dedicated login page
+    #     login_page = await self.context.new_page()
 
-        try:
-            if site_name == "shopping":
-                login_url = f"http://{self.config.sites[site_name]}/customer/account/login/"
-                await login_page.goto(login_url, wait_until="networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
-                await login_page.get_by_label("Email", exact=True).fill(username)
-                await login_page.get_by_label("Password", exact=True).fill(password)
-                await asyncio.sleep(2)  # Additional wait for login to complete
-                await login_page.get_by_role("button", name="Sign In").click()
-                # Wait for navigation after login
-                await login_page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
-                await asyncio.sleep(2)  # Additional wait for login to complete
+    #     try:
+    #         if site_name == "shopping":
+    #             login_url = f"http://{self.config.sites[site_name]}/customer/account/login/"
+    #             await login_page.goto(login_url, wait_until="networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
+    #             await login_page.get_by_label("Email", exact=True).fill(username)
+    #             await login_page.get_by_label("Password", exact=True).fill(password)
+    #             await asyncio.sleep(2)  # Additional wait for login to complete
+    #             await login_page.get_by_role("button", name="Sign In").click()
+    #             # Wait for navigation after login
+    #             await login_page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
+    #             await asyncio.sleep(2)  # Additional wait for login to complete
 
-            elif site_name == "reddit":
-                login_url = f"http://{self.config.sites[site_name]}/login"
-                await login_page.goto(login_url, wait_until="networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
-                await login_page.get_by_label("Username").fill(username)
-                await login_page.get_by_label("Password").fill(password)
-                await login_page.get_by_role("button", name="Log in").click()
-                # Wait for navigation after login
-                await login_page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
-                await asyncio.sleep(2)  # Additional wait for login to complete
+    #         elif site_name == "reddit":
+    #             login_url = f"http://{self.config.sites[site_name]}/login"
+    #             await login_page.goto(login_url, wait_until="networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
+    #             await login_page.get_by_label("Username").fill(username)
+    #             await login_page.get_by_label("Password").fill(password)
+    #             await login_page.get_by_role("button", name="Log in").click()
+    #             # Wait for navigation after login
+    #             await login_page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
+    #             await asyncio.sleep(2)  # Additional wait for login to complete
 
-            elif site_name == "shopping_admin":
-                login_url = f"http://{self.config.sites[site_name]}"
-                await login_page.goto(login_url, wait_until="networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
-                await login_page.get_by_placeholder("user name").fill(username)
-                await login_page.get_by_placeholder("password").fill(password)
-                await login_page.get_by_role("button", name="Sign in").click()
-                # Wait for navigation after login
-                await login_page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
-                await asyncio.sleep(2)  # Additional wait for login to complete
+    #         elif site_name == "shopping_admin":
+    #             login_url = f"http://{self.config.sites[site_name]}"
+    #             await login_page.goto(login_url, wait_until="networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
+    #             await login_page.get_by_placeholder("user name").fill(username)
+    #             await login_page.get_by_placeholder("password").fill(password)
+    #             await login_page.get_by_role("button", name="Sign in").click()
+    #             # Wait for navigation after login
+    #             await login_page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
+    #             await asyncio.sleep(2)  # Additional wait for login to complete
 
-            elif site_name == "gitlab":
-                login_url = f"http://{self.config.sites[site_name]}/users/sign_in"
-                await login_page.goto(login_url, wait_until="networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
-                await login_page.get_by_test_id("username-field").click()
-                await login_page.get_by_test_id("username-field").fill(username)
-                await login_page.get_by_test_id("username-field").press("Tab")
-                await login_page.get_by_test_id("password-field").fill(password)
-                await login_page.get_by_test_id("sign-in-button").click()
-                # Wait for navigation after login
-                await login_page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
-                await asyncio.sleep(2)  # Additional wait for login to complete
+    #         elif site_name == "gitlab":
+    #             login_url = f"http://{self.config.sites[site_name]}/users/sign_in"
+    #             await login_page.goto(login_url, wait_until="networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
+    #             await login_page.get_by_test_id("username-field").click()
+    #             await login_page.get_by_test_id("username-field").fill(username)
+    #             await login_page.get_by_test_id("username-field").press("Tab")
+    #             await login_page.get_by_test_id("password-field").fill(password)
+    #             await login_page.get_by_test_id("sign-in-button").click()
+    #             # Wait for navigation after login
+    #             await login_page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)
+    #             await asyncio.sleep(2)  # Additional wait for login to complete
 
-            else:
-                self.logger.warning(f"No login logic implemented for site: {site_name}")
-                return
+    #         else:
+    #             self.logger.warning(f"No login logic implemented for site: {site_name}")
+    #             return
 
-            self.logger.info(f"Successfully logged into {site_name}")
+    #         self.logger.info(f"Successfully logged into {site_name}")
 
-        except Exception as e:
-            self.logger.error(f"Failed to login to {site_name}: {e}")
-            raise
-        finally:
-            # Close the dedicated login page
-            await login_page.close()
+    #     except Exception as e:
+    #         self.logger.error(f"Failed to login to {site_name}: {e}")
+    #         raise
+    #     finally:
+    #         # Close the dedicated login page
+    #         await login_page.close()
 
     async def ensure_logged_in(self, required_sites: list[str]) -> None:
         """Ensure user is logged into all required sites"""
-        for site_name in required_sites:
-            if site_name in self.config.sites:
-                await self.login_to_site(site_name)
-            else:
-                self.logger.warning(f"Site not configured: {site_name}")
+        pass
+        # for site_name in required_sites:
+        #     if site_name in self.config.sites:
+        #         await self.login_to_site(site_name)
+        #     else:
+        #         self.logger.warning(f"Site not configured: {site_name}")
 
     async def setup(self, task_config: dict | None = None):
         """Initialize the browser environment with configuration"""
@@ -900,13 +901,13 @@ class WebAgentEnv:
             # Use both original networkidle (for page loads) and custom detection (for XHR/fetch)
             try:
                 # First wait for Playwright's networkidle (handles initial page loads well)
-                await self.page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)  # Shorter timeout
+                # await self.page.wait_for_load_state("networkidle", timeout=self.config.browser.timeouts.page_load_networkidle)  # Shorter timeout
                 self.logger.info("Playwright networkidle detected")
             except Exception as e:
                 self.logger.info(f"Playwright networkidle timeout (normal): {e}")
 
             # Then wait for custom network idle detection (handles XHR/fetch after interactions)
-            await self._wait_for_custom_network_idle(timeout_ms=self.config.browser.timeouts.page_load_networkidle, idle_time_ms=self.config.browser.timeouts.custom_network_idle)
+            # await self._wait_for_custom_network_idle(timeout_ms=self.config.browser.timeouts.page_load_networkidle, idle_time_ms=self.config.browser.timeouts.custom_network_idle)
 
             self.logger.info("Page loaded and stable")
         except Exception as e:

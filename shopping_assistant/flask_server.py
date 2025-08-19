@@ -15,9 +15,11 @@ from rl_web_agent.env import WebAgentEnv
 import hydra
 from hydra import initialize, compose
 import threading
+from datetime import datetime
+import time
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 app = Quart(__name__)
 app = cors(app, allow_origin="*")
@@ -87,6 +89,7 @@ class Session:
         """
         Sends messages to a model with async tool handling.
         """
+        _function_start_ms = time.perf_counter()
         # Add user message to conversation
         user_msg = {
             "role": "user",
@@ -101,6 +104,7 @@ class Session:
         additional_model_fields = {"top_k": top_k}
 
         try:
+            _llm_start = time.perf_counter()
             response = self.bedrock_client.converse(
                 modelId=self.model_id,
                 messages=self.messages,
@@ -109,20 +113,25 @@ class Session:
                 additionalModelRequestFields=additional_model_fields,
                 toolConfig=self.tool_config
             )
+            _llm_elapsed_ms = (time.perf_counter() - _llm_start) * 1000.0
+            logger.info(f"[TIMING] LLM converse (initial) took {_llm_elapsed_ms:.2f} ms")
 
             output_message = response['output']['message']
             self.messages.append(output_message)
         except Exception as e:
-            logger.error(f"Error in main model call: {e}")
+            _llm_elapsed_ms = (time.perf_counter() - _llm_start) * 1000.0
+            logger.error(f"[TIMING] LLM converse (initial) failed after {_llm_elapsed_ms:.2f} ms: {e}")
             # Create a fallback response
             output_message = {
                 "role": "assistant",
                 "content": [{"text": f"I encountered an error: {str(e)}"}]
             }
             self.messages.append(output_message)
+            _function_elapsed_ms = (time.perf_counter() - _function_start_ms) * 1000.0
+            logger.info(f"[TIMING] generate_conversation_async total {_function_elapsed_ms:.2f} ms (early return)")
             return output_message
 
-        if response['stopReason'] == 'tool_use':
+        while response['stopReason'] == 'tool_use':
             tool_requests = output_message['content']
             tool_result_contents = []
 
@@ -136,6 +145,7 @@ class Session:
 
                     # Handle async tool calls
                     try:
+                        _tool_start = time.perf_counter()
                         if tool_name == 'search':
                             result_text = await self.search(tool_input['query'])
                             tool_result = {
@@ -161,6 +171,12 @@ class Session:
                             "content": [{"text": f"Error executing tool {tool_name}: {str(e)}"}],
                             "status": "error"
                         }
+                    finally:
+                        try:
+                            _tool_elapsed_ms = (time.perf_counter() - _tool_start) * 1000.0
+                            logger.info(f"[TIMING] Tool '{tool_name}' took {_tool_elapsed_ms:.2f} ms")
+                        except Exception:
+                            pass
 
                     tool_result_contents.append({"toolResult": tool_result})
 
@@ -173,6 +189,7 @@ class Session:
 
                 # Single follow-up model call after providing all tool results
                 try:
+                    _llm_follow_start = time.perf_counter()
                     response = self.bedrock_client.converse(
                         modelId=self.model_id,
                         messages=self.messages,
@@ -181,16 +198,41 @@ class Session:
                         additionalModelRequestFields=additional_model_fields,
                         toolConfig=self.tool_config
                     )
+                    _llm_follow_elapsed_ms = (time.perf_counter() - _llm_follow_start) * 1000.0
+                    logger.info(f"[TIMING] LLM converse (after tools) took {_llm_follow_elapsed_ms:.2f} ms")
                     output_message = response['output']['message']
                     self.messages.append(output_message)
                 except Exception as e:
-                    logger.error(f"Error in follow-up model call: {e}")
+                    _llm_follow_elapsed_ms = (time.perf_counter() - _llm_follow_start) * 1000.0
+                    logger.error(f"[TIMING] LLM converse (after tools) failed after {_llm_follow_elapsed_ms:.2f} ms: {e}")
                     output_message = {
                         "role": "assistant",
                         "content": [{"text": f"I encountered an error processing the tool results: {str(e)}"}]
                     }
                     self.messages.append(output_message)
-
+        # remove historical tool use and tool result from messages
+        new_messages = []
+        for m in self.messages:
+            if m['role'] == 'assistant':
+                should_remove = False
+                for c in m['content']:
+                    if 'toolUse' in c:
+                        should_remove = True
+                        break
+                if not should_remove:
+                    new_messages.append(m)
+            if m['role'] == 'user':
+                should_remove = False
+                for c in m['content']:  
+                    if 'toolResult' in c:
+                        should_remove = True
+                        break
+                if not should_remove:
+                    new_messages.append(m)
+        print(f"new_messages: {new_messages}")
+        self.messages = new_messages
+        _function_elapsed_ms = (time.perf_counter() - _function_start_ms) * 1000.0
+        logger.info(f"[TIMING] generate_conversation_async total {_function_elapsed_ms:.2f} ms")
         return output_message
 
     async def initialize_bedrock(self):
@@ -222,6 +264,16 @@ def cleanup_session(session_id: str):
         if session_id in sessions:
             del sessions[session_id]
             logger.info(f"Cleaned up session: {session_id}")
+
+def _now_iso(self):
+    return datetime.now().isoformat()
+
+def _content_to_text(content_blocks):
+# content: [{"text": "..."}] 或包含 toolUse/toolResult，简单起见只取 text
+    for item in content_blocks or []:
+        if isinstance(item, dict) and "text" in item:
+            return item["text"]
+    return ""
 
 async def setup_global_environment():
     """Initialize the global WebAgentEnv with proper configuration."""
@@ -348,6 +400,24 @@ async def cleanup_session_api():
             "success": False,
             "error": str(e)
         }), 500
+
+@app.route('/sessions/<session_id>/messages', methods=['GET'])
+async def get_messages_api(session_id):
+    s = get_session(session_id)
+    if not s:
+        return jsonify({"success": False, "error": "Session not found"}), 404
+
+
+    flat = []
+    with s._lock:
+        for m in s.messages:
+            flat.append({
+                "role": m.get("role", ""),
+                "text": _content_to_text(m.get("content", [])),
+                "createdAt": m.get("createdAt", _now_iso())
+            })
+    return jsonify({"success": True, "messages": flat}), 200
+
 
 @app.route('/health', methods=['GET'])
 async def health_check():

@@ -31,7 +31,7 @@ environment:
     wikipedia: "ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8888"
 
   init_script_path: "rl_web_agent/javascript/initscript.js"   # Path to JavaScript init script
-  parser_script_path: "rl_web_agent/javascript/parser.js"     # Path to JavaScript parser script
+  parser_script_path: "/Users/shihanfu/workspace/rl_web_agent/rl_web_agent/javascript/parser.js"     # Path to JavaScript parser script
 
   # Proxy configuration
   proxy:
@@ -46,7 +46,7 @@ environment:
   browser:
     # Launch options
     launch_options:
-      headless: true                  # Show browser window (set true for CI/automation)
+      headless: false                  # Show browser window (set true for CI/automation)
       args:                           # Performance optimization args
         - "--disable-autofill-keyboard-accessory-view"
         - "--disable-autofill-profile-update"
