@@ -6,6 +6,7 @@ import boto3
 import asyncio
 import uuid
 import json
+from click.core import V
 from quart import Quart, request, jsonify
 from quart_cors import cors
 from botocore.exceptions import ClientError
@@ -39,7 +40,7 @@ def _looks_like_current_product_question(txt: str) -> bool:
     t = txt.lower()
     patterns = [
         r"\bthis product\b", r"\bthis page\b", r"\bcurrent product\b",
-        r"这个产品", r"当前(页|页面|产品)", r"这(个)?商品"
+        r"\bthis item\b", r"\bthis listing\b", r"\bcurrent page\b"
     ]
     return any(re.search(p, t) for p in patterns)
 
@@ -78,7 +79,8 @@ class Session:
             await global_env.goto_url(search_url)
             print("Goto URL done")
             observation = await global_env.observation()
-            
+            # print the observed html
+            print(observation["html"])
             # Return the HTML content directly as the tool response
             return observation.get("html", "No HTML content available")
             
@@ -103,9 +105,12 @@ class Session:
             logger.error(f"Error in visit_product function: {e}")
             return f"Error visiting product: {str(e)}"
 
-    async def get_current_url(self) -> str:
+    async def get_current_page(self) -> str:
         """Return current URL stored from front-end."""
-        return self.current_url or ""
+        if self.current_url:
+            return await self.visit_product(self.current_url)
+        else:
+            return "No current URL available"
 
     async def generate_conversation_async(self, user_message: str):
         """
@@ -205,9 +210,9 @@ class Session:
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": result_text}]
                             }
-                        elif tool_name == 'get_current_url':
-                            url = await self.get_current_url()
-                            logger.info(f"[TOOL] get_current_url -> {url!r}")
+                        elif tool_name == 'get_current_page':
+                            url = await self.get_current_page()
+                            logger.info(f"[TOOL] get_current_page -> {url!r}")
                             tool_result = {
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": url or ""}]
@@ -324,7 +329,7 @@ def _now_iso():
     return datetime.now().isoformat()
 
 def _content_to_text(content_blocks):
-    # 包含 toolUse/toolResult
+    # Includes toolUse/toolResult
     parts = []
     for item in content_blocks or []:
         if not isinstance(item, dict):

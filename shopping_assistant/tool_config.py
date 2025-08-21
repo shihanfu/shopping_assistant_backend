@@ -40,8 +40,8 @@ TOOL_CONFIG = {
         },
         {
             "toolSpec": {
-                "name": "get_current_url",
-                "description": "Get the current browser URL previously sent from the front-end.",
+                "name": "get_current_page",
+                "description": "Get the current page that the user is looking at.",
                 "inputSchema": {
                     "json": {
                         "type": "object",

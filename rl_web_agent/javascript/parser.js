@@ -54,6 +54,7 @@ const parse = () => {
     };
 
     const isEmpty = (el) => {
+        if (PRESERVE_EMPTY_TAGS.has(el.tagName.toLowerCase())) return false;
         for (const n of el.childNodes) {
             if (n.nodeType === 3 && n.textContent.trim()) return false;
             if (n.nodeType === 1 && !isEmpty(n)) return false;
