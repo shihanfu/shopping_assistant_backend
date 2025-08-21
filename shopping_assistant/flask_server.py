@@ -17,6 +17,7 @@ from hydra import initialize, compose
 import threading
 from datetime import datetime
 import time
+import re
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -32,19 +33,36 @@ env_lock = threading.Lock()
 sessions = {}
 session_lock = threading.Lock()
 
+def _looks_like_current_product_question(txt: str) -> bool:
+    if not txt:
+        return False
+    t = txt.lower()
+    patterns = [
+        r"\bthis product\b", r"\bthis page\b", r"\bcurrent product\b",
+        r"这个产品", r"当前(页|页面|产品)", r"这(个)?商品"
+    ]
+    return any(re.search(p, t) for p in patterns)
+
 class Session:
     def __init__(self, session_id: str):
         self.session_id = session_id
         self.messages = []
         self.bedrock_client = None
-        self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+
+        # self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+        # self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-5-haiku-20241022-v1:0"
+        self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-haiku-20240307-v1:0"
         self.system_prompts = [{"text": SYSTEM_PROMPT}]
         self.tool_config = TOOL_CONFIG
         self._lock = threading.Lock()
+        self.current_url = None
+        print(f"Session initialized with model {self.model_id}")
+
 
     async def search(self, query: str) -> str:
         """Search for products using global WebAgentEnv."""
-        global global_env
+        global global_envenecccfnfutuefcleivhlcnhkejhkhiukiebnccflici
+
         if not global_env:
             return "Error: WebAgentEnv not initialized"
         
@@ -85,6 +103,10 @@ class Session:
             logger.error(f"Error in visit_product function: {e}")
             return f"Error visiting product: {str(e)}"
 
+    async def get_current_url(self) -> str:
+        """Return current URL stored from front-end."""
+        return self.current_url or ""
+
     async def generate_conversation_async(self, user_message: str):
         """
         Sends messages to a model with async tool handling.
@@ -93,9 +115,26 @@ class Session:
         # Add user message to conversation
         user_msg = {
             "role": "user",
-            "content": [{"text": user_message}]
+            "content": [{"text": user_message}],
+            "createdAt": _now_iso()
         }
-        self.messages.append(user_msg)
+        with self._lock:
+            self.messages.append(user_msg)
+
+        #Previsit safeguard: if user asks about the current product and we have a current_url
+        if _looks_like_current_product_question(user_message) and self.current_url:
+            try:
+                logger.info(f"[PREVISIT] Visiting current_url before LLM: {self.current_url}")
+                html = await self.visit_product(self.current_url)
+                previsit_text = f"[PREVISIT_CURRENT] url={self.current_url}\n{html or ''}"
+                with self._lock:
+                    self.messages.append({
+                        "role": "user",
+                        "content": [{"text": previsit_text}],
+                        "createdAt": _now_iso()
+                    })
+            except Exception as e:
+                logger.warning(f"[PREVISIT] failed: {e}")
 
         temperature = 0.5
         top_k = 200
@@ -105,19 +144,25 @@ class Session:
 
         try:
             _llm_start = time.perf_counter()
+            sanitized_messages = [{"role": m["role"], "content": m["content"]} for m in self.messages]
             response = self.bedrock_client.converse(
                 modelId=self.model_id,
-                messages=self.messages,
+                messages=sanitized_messages,
                 system=self.system_prompts,
                 inferenceConfig=inference_config,
                 additionalModelRequestFields=additional_model_fields,
-                toolConfig=self.tool_config
+                toolConfig=self.tool_config,
+                # performanceConfig={
+                #     "latency": "optimized"
+                # }
             )
             _llm_elapsed_ms = (time.perf_counter() - _llm_start) * 1000.0
             logger.info(f"[TIMING] LLM converse (initial) took {_llm_elapsed_ms:.2f} ms")
 
             output_message = response['output']['message']
-            self.messages.append(output_message)
+            output_message['createdAt'] = _now_iso()
+            with self._lock:
+                self.messages.append(output_message)
         except Exception as e:
             _llm_elapsed_ms = (time.perf_counter() - _llm_start) * 1000.0
             logger.error(f"[TIMING] LLM converse (initial) failed after {_llm_elapsed_ms:.2f} ms: {e}")
@@ -153,10 +198,19 @@ class Session:
                                 "content": [{"text": result_text}]
                             }
                         elif tool_name == 'visit_product':
+                            logger.info(f"[TOOL] visit_product input: {tool_input}")
                             result_text = await self.visit_product(tool_input['product_url'])
+                            logger.info(f"[TOOL] visit_product html_len={len(result_text or '')}")
                             tool_result = {
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": result_text}]
+                            }
+                        elif tool_name == 'get_current_url':
+                            url = await self.get_current_url()
+                            logger.info(f"[TOOL] get_current_url -> {url!r}")
+                            tool_result = {
+                                "toolUseId": tool_use_id,
+                                "content": [{"text": url or ""}]
                             }
                         else:
                             tool_result = {
@@ -190,9 +244,10 @@ class Session:
                 # Single follow-up model call after providing all tool results
                 try:
                     _llm_follow_start = time.perf_counter()
+                    sanitized_messages = [{"role": m["role"], "content": m["content"]} for m in self.messages]
                     response = self.bedrock_client.converse(
                         modelId=self.model_id,
-                        messages=self.messages,
+                        messages=sanitized_messages,
                         system=self.system_prompts,
                         inferenceConfig=inference_config,
                         additionalModelRequestFields=additional_model_fields,
@@ -265,15 +320,34 @@ def cleanup_session(session_id: str):
             del sessions[session_id]
             logger.info(f"Cleaned up session: {session_id}")
 
-def _now_iso(self):
+def _now_iso():
     return datetime.now().isoformat()
 
 def _content_to_text(content_blocks):
-# content: [{"text": "..."}] 或包含 toolUse/toolResult，简单起见只取 text
+    # 包含 toolUse/toolResult
+    parts = []
     for item in content_blocks or []:
-        if isinstance(item, dict) and "text" in item:
-            return item["text"]
-    return ""
+        if not isinstance(item, dict):
+            continue
+        if "text" in item:
+            parts.append(item["text"])
+        elif "toolUse" in item:
+            tool = item["toolUse"]
+            name = tool["name"]
+            tool_input = tool["input"]
+            input_str = json.dumps(tool_input, ensure_ascii=False)
+            parts.append(f"[toolUse:{name}] input={input_str}")
+        elif "toolResult" in item:
+            tool_result = item["toolResult"]
+            tool_use_id = tool_result["toolUseId"]
+            status_suffix = f" status={tool_result['status']}" if "status" in tool_result else ""
+            texts = []
+            for c in tool_result["content"]:
+                if isinstance(c, dict) and "text" in c:
+                    texts.append(c["text"])
+            result_text = "\n".join(texts)
+            parts.append(f"[toolResult:{tool_use_id}{status_suffix}] {result_text}")
+    return "\n".join([p for p in parts if p])
 
 async def setup_global_environment():
     """Initialize the global WebAgentEnv with proper configuration."""
@@ -350,22 +424,47 @@ async def chat_api():
                 "error": "Global environment not initialized"
             }), 503
         
+        from urllib.parse import urlparse
+        
+        current_url = data.get('current_url')
+        logger.info(f"Received current_url: {current_url}")
+
+        if current_url:
+            try:
+                parsed = urlparse(current_url)
+                host = parsed.hostname
+                if parsed.scheme in ('http', 'https') and host and host.endswith('metis.lti.cs.cmu.edu'):
+                    session.current_url = current_url
+                    logger.info(f"[SESSION] {session_id} current_url set to {session.current_url}")
+                else:
+                    logger.warning(f"[SESSION] rejected current_url={current_url} (scheme={parsed.scheme}, host={host})")
+            except Exception as e:
+                logger.warning(f"[SESSION] invalid current_url={current_url}, err={e}")
+            
         # Initialize Bedrock client
         await session.initialize_bedrock()
         
         # Generate conversation
         ai_message = await session.generate_conversation_async(message)
         
-        # Extract text content from AI message
-        response_text = ""
-        for content_item in ai_message.get("content", []):
-            if "text" in content_item:
-                response_text = content_item['text']
-                break
         
+        response_text = _content_to_text(ai_message.get("content", []))
+
+        
+        s = get_session(session_id)
+        flat = []
+        with s._lock:
+            for m in s.messages:
+                flat.append({
+                    "role": m.get("role", ""),
+                    "text": _content_to_text(m.get("content", [])),
+                    "createdAt": m.get("createdAt", _now_iso())
+                })
+
         return jsonify({
             "success": True,
-            "response": response_text
+            "response": response_text,
+            "messages": flat
         }), 200
         
     except Exception as e:

@@ -37,6 +37,20 @@ TOOL_CONFIG = {
                     }
                 }
             }
+        },
+        {
+            "toolSpec": {
+                "name": "get_current_url",
+                "description": "Get the current browser URL previously sent from the front-end.",
+                "inputSchema": {
+                    "json": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
+            }
         }
-    ]
+    ],
+    "toolChoice": { "auto": {} } 
 }

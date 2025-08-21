@@ -739,6 +739,12 @@ class WebAgentEnv:
             await env.goto_url("https://google.com")
             await env.goto_url("http://localhost:3000/login")
         """
+        # Ensure there is an active page before navigating
+        if self.page is None:
+            if self.context is None:
+                raise RuntimeError("WebAgentEnv is not set up. Call setup() before navigating.")
+            self.page = await self.context.new_page()
+
         await self.page.goto(url, wait_until="domcontentloaded")
         self.logger.info(f"Navigated to: {url}")
 
