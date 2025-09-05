@@ -71,7 +71,7 @@ class Session:
             # URL encode the query for the search URL
             import urllib.parse
             encoded_query = urllib.parse.quote(query)
-            url_template = "http://metis.lti.cs.cmu.edu:7770/catalogsearch/result/?q={query}"
+            url_template = "http://52.91.223.130:7770/catalogsearch/result/?q={query}"
             search_url = url_template.format(query=encoded_query)
             
             # await global_env.step(f'{{"action": "goto_url", "url": "{search_url}"}}')

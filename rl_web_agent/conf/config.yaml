@@ -36,7 +36,7 @@ environment:
   # Proxy configuration
   proxy:
     server: "http://localhost:8080"    # Proxy server URL (must be running)
-    enabled: true                      # Enable proxy routing (set false to bypass)
+    enabled: false                      # Enable proxy routing (set false to bypass)
 
   # Browser configuration
   # Maps directly to Playwright's launch and context options
