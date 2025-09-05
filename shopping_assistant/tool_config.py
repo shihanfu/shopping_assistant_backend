@@ -37,19 +37,6 @@ TOOL_CONFIG = {
                     }
                 }
             }
-        },
-        {
-            "toolSpec": {
-                "name": "get_current_page",
-                "description": "Get the current page that the user is looking at.",
-                "inputSchema": {
-                    "json": {
-                        "type": "object",
-                        "properties": {},
-                        "required": []
-                    }
-                }
-            }
         }
     ],
     "toolChoice": { "auto": {} } 

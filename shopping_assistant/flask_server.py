@@ -105,12 +105,7 @@ class Session:
             logger.error(f"Error in visit_product function: {e}")
             return f"Error visiting product: {str(e)}"
 
-    async def get_current_page(self) -> str:
-        """Return current URL stored from front-end."""
-        if self.current_url:
-            return await self.visit_product(self.current_url)
-        else:
-            return "No current URL available"
+    
 
     async def generate_conversation_async(self, user_message: str):
         """
@@ -210,13 +205,7 @@ class Session:
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": result_text}]
                             }
-                        elif tool_name == 'get_current_page':
-                            url = await self.get_current_page()
-                            logger.info(f"[TOOL] get_current_page -> {url!r}")
-                            tool_result = {
-                                "toolUseId": tool_use_id,
-                                "content": [{"text": url or ""}]
-                            }
+                        
                         else:
                             tool_result = {
                                 "toolUseId": tool_use_id,
@@ -438,7 +427,12 @@ async def chat_api():
             try:
                 parsed = urlparse(current_url)
                 host = parsed.hostname
-                if parsed.scheme in ('http', 'https') and host and host.endswith('metis.lti.cs.cmu.edu'):
+                allowed = (
+                    parsed.scheme in ('http', 'https') and host and (
+                        host.endswith('metis.lti.cs.cmu.edu') or host == '52.91.223.130'
+                    )
+                )
+                if allowed:
                     session.current_url = current_url
                     logger.info(f"[SESSION] {session_id} current_url set to {session.current_url}")
                 else:
