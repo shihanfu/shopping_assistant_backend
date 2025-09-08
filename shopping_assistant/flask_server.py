@@ -37,15 +37,6 @@ env_lock = threading.Lock()
 sessions = {}
 session_lock = threading.Lock()
 
-def _looks_like_current_product_question(txt: str) -> bool:
-    if not txt:
-        return False
-    t = txt.lower()
-    patterns = [
-        r"\bthis product\b", r"\bthis page\b", r"\bcurrent product\b",
-        r"\bthis item\b", r"\bthis listing\b", r"\bcurrent page\b"
-    ]
-    return any(re.search(p, t) for p in patterns)
 
 class Session:
     def __init__(self, session_id: str):
@@ -55,7 +46,7 @@ class Session:
 
         # self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         # self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-5-haiku-20241022-v1:0"
-        self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-haiku-20240307-v1:0"
+        self.model_id = "arn:aws:bedrock:us-east-1:561287527800:inference-profile/us.anthropic.claude-3-haiku-20240307-v1:0"
         self.system_prompts = [{"text": SYSTEM_PROMPT}]
         self.tool_config = TOOL_CONFIG
         self._lock = threading.Lock()
@@ -125,19 +116,20 @@ class Session:
             self.messages.append(user_msg)
 
         #Previsit safeguard: if user asks about the current product and we have a current_url
-        if _looks_like_current_product_question(user_message) and self.current_url:
-            try:
-                logger.info(f"[PREVISIT] Visiting current_url before LLM: {self.current_url}")
-                html = await self.visit_product(self.current_url)
-                previsit_text = f"[PREVISIT_CURRENT] url={self.current_url}\n{html or ''}"
-                with self._lock:
-                    self.messages.append({
-                        "role": "user",
-                        "content": [{"text": previsit_text}],
-                        "createdAt": _now_iso()
-                    })
-            except Exception as e:
-                logger.warning(f"[PREVISIT] failed: {e}")
+        # if _looks_like_current_product_question(user_message) and self.current_url:
+        #     try:
+        #         logger.info(f"[PREVISIT] Visiting current_url before LLM: {self.current_url}")
+        #         html = await self.visit_product(self.current_url)
+        #         previsit_text = f"[PREVISIT_CURRENT] url={self.current_url}\n{html or ''}"
+        with self._lock:
+            self.messages.append({
+                "role": "user",
+                "content": [{"text": "The current url the user is on is: " + self.current_url}],
+                "createdAt": _now_iso(),
+                "hidden": True
+            })
+        #     except Exception as e:
+        #         logger.warning(f"[PREVISIT] failed: {e}")
 
         temperature = 0.5
         top_k = 200
@@ -291,7 +283,7 @@ class Session:
         """Initialize Bedrock client for the session."""
         with self._lock:
             if self.bedrock_client is None:
-                session = boto3.Session(profile_name='yuxuanlu', region_name='us-east-1')
+                session = boto3.Session(region_name='us-east-1')
                 self.bedrock_client = session.client('bedrock-runtime')
                 logger.info(f"Bedrock client initialized for session {self.session_id}")
 

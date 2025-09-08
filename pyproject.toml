@@ -47,6 +47,8 @@ dependencies = [
   "nltk>=3.9.1",
   "quart-cors>=0.8.0",
   "regex>=2025.9.1",
+  "gunicorn>=23.0.0",
+  "uvicorn>=0.35.0",
 ]
 requires-python = ">=3.10"
 

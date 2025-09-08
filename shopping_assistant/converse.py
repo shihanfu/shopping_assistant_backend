@@ -208,7 +208,7 @@ def generate_conversation(bedrock_client,
 
 async def main_async():
     """Async main function."""
-    model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+    model_id = "arn:aws:bedrock:us-east-1:561287527800:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
     system_prompts = [{"text": SYSTEM_PROMPT}]
     messages = []
 
@@ -216,7 +216,7 @@ async def main_async():
         # Setup WebAgentEnv
         await setup_environment()
         
-        session = boto3.Session(profile_name='yuxuanlu', region_name='us-east-1')
+        session = boto3.Session(region_name='us-east-1')
         bedrock_client = session.client('bedrock-runtime')
 
         while True:
