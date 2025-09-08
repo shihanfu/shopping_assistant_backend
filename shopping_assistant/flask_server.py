@@ -10,7 +10,8 @@ from click.core import V
 from quart import Quart, request, jsonify
 from quart_cors import cors
 from botocore.exceptions import ClientError
-from prompts.system_prompt import SYSTEM_PROMPT
+# from prompts.system_prompt import SYSTEM_PROMPT
+from shopping_assistant.prompts.system_prompt import SYSTEM_PROMPT
 from tool_config import TOOL_CONFIG
 from rl_web_agent.env import WebAgentEnv
 import hydra
