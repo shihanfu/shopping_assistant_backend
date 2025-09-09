@@ -21,6 +21,7 @@ from hydra import initialize, compose
 import threading
 from datetime import datetime
 import time
+import sys
 import re
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,7 @@ class Session:
             observation = await global_env.observation()
             # print the observed html
             print(observation["html"])
+            logger.info(f"Observation: {observation}")
             # Return the HTML content directly as the tool response
             return observation.get("html", "No HTML content available")
             
