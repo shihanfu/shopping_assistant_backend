@@ -50,7 +50,6 @@ You can handle three question types: (1) recommend products, (2) answer question
    - After showing results, you MAY ask follow-up questions (e.g. style, budget, occasion) to refine recommendations.
    - Only perform one **search** per turn. Do not mix with **visit_product**.
 
-
 2) **Answer questions about a specific product**
    - If it’s about **the current page**, answer based on provided details. If insufficient, ask for the link.
    - If the user gives a URL, call **visit_product** for that URL (one tool).
