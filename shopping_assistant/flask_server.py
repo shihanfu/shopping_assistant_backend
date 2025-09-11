@@ -25,6 +25,11 @@ import sys
 import re
 
 logger = logging.getLogger(__name__)
+# add a file logger
+file_logger = logging.FileHandler('/home/ubuntu/shopping_assistant/shopping_assistant.log')
+file_logger.setLevel(logging.INFO)
+file_logger.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(file_logger)
 logging.basicConfig(level=logging.INFO)
 
 app = Quart(__name__)
@@ -124,12 +129,13 @@ class Session:
         #         html = await self.visit_product(self.current_url)
         #         previsit_text = f"[PREVISIT_CURRENT] url={self.current_url}\n{html or ''}"
         with self._lock:
-            self.messages.append({
-                "role": "user",
-                "content": [{"text": "The current url the user is on is: " + self.current_url}],
-                "createdAt": _now_iso(),
-                "hidden": True
-            })
+            if self.current_url:
+                self.messages.append({
+                    "role": "user",
+                    "content": [{"text": "The current url the user is on is: " + self.current_url}],
+                    "createdAt": _now_iso(),
+                    "hidden": True
+                })
         #     except Exception as e:
         #         logger.warning(f"[PREVISIT] failed: {e}")
 
@@ -142,6 +148,8 @@ class Session:
         try:
             _llm_start = time.perf_counter()
             sanitized_messages = [{"role": m["role"], "content": m["content"]} for m in self.messages]
+            logger.info(f"sanitized_messages: {sanitized_messages}")
+            logger.info(f"system_prompts: {self.system_prompts}")
             response = self.bedrock_client.converse(
                 modelId=self.model_id,
                 messages=sanitized_messages,
@@ -236,6 +244,8 @@ class Session:
                 try:
                     _llm_follow_start = time.perf_counter()
                     sanitized_messages = [{"role": m["role"], "content": m["content"]} for m in self.messages]
+                    logger.info(f"sanitized_messages: {sanitized_messages}")
+                    logger.info(f"system_prompts: {self.system_prompts}")
                     response = self.bedrock_client.converse(
                         modelId=self.model_id,
                         messages=sanitized_messages,
@@ -247,6 +257,8 @@ class Session:
                     _llm_follow_elapsed_ms = (time.perf_counter() - _llm_follow_start) * 1000.0
                     logger.info(f"[TIMING] LLM converse (after tools) took {_llm_follow_elapsed_ms:.2f} ms")
                     output_message = response['output']['message']
+                    logger.info(f"response: {response}")
+                    logger.info(f"output_message: {output_message}")
                     self.messages.append(output_message)
                 except Exception as e:
                     _llm_follow_elapsed_ms = (time.perf_counter() - _llm_follow_start) * 1000.0
@@ -279,6 +291,7 @@ class Session:
         self.messages = new_messages
         _function_elapsed_ms = (time.perf_counter() - _function_start_ms) * 1000.0
         logger.info(f"[TIMING] generate_conversation_async total {_function_elapsed_ms:.2f} ms")
+        logger.info(f"output_message: {output_message}")
         return output_message
 
     async def initialize_bedrock(self):
@@ -464,6 +477,9 @@ async def chat_api():
         }), 200
         
     except Exception as e:
+        # print traceback
+        import traceback
+        traceback.print_exc()
         logger.error(f"Error in chat API: {e}")
         return jsonify({
             "success": False,
