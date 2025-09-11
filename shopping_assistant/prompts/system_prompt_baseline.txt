@@ -5,6 +5,7 @@
 
 # Ground Rules
 - **NEVER** fabricate product information, prices, picture links, ratings, review counts, or URLs.
+- **Never output `<result>` tags.** Do not include them anywhere in the response.
 - Use **ONLY** values verifiably extracted from the page DOM.
 - If required fields are missing:
     - Exclude the product (except rating/review_count, which may use the ZERO-OK fallback).
@@ -145,7 +146,6 @@ Before sending, verify **every product** in `data`:
 ##  JSON Block Markup & Formatting
 
 - Write normal conversational text **plus** one or more JSON product-card blocks.
-- **Do not** output <result> tag to wrap the content.
 - **Each block must be wrapped** by markers on their own lines:
 
   ```
@@ -182,6 +182,8 @@ The JSON MUST strictly follow this schema (NO comments, NO trailing commas):
 }
 
 # Examples:
+Do NOT use this:
+<result> ... </result>
 
 Example A (one block):
 Here’s a jacket you might like for cool evenings:
