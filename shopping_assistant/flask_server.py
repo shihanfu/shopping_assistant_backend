@@ -467,7 +467,9 @@ async def chat_api():
                 flat.append({
                     "role": m.get("role", ""),
                     "text": _content_to_text(m.get("content", [])),
-                    "createdAt": m.get("createdAt", _now_iso())
+                    "createdAt": m.get("createdAt", _now_iso()),
+                    "hidden": m.get("hidden", False)
+
                 })
 
         return jsonify({
@@ -525,7 +527,8 @@ async def get_messages_api(session_id):
             flat.append({
                 "role": m.get("role", ""),
                 "text": _content_to_text(m.get("content", [])),
-                "createdAt": m.get("createdAt", _now_iso())
+                "createdAt": m.get("createdAt", _now_iso()),
+                "hidden": m.get("hidden", False)
             })
     return jsonify({"success": True, "messages": flat}), 200
 
