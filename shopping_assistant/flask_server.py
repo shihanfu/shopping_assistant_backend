@@ -52,7 +52,8 @@ class Session:
 
         # self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         # self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-5-haiku-20241022-v1:0"
-        self.model_id = "arn:aws:bedrock:us-east-1:561287527800:inference-profile/us.anthropic.claude-3-haiku-20240307-v1:0"
+        # self.model_id = "arn:aws:bedrock:us-east-1:561287527800:inference-profile/us.anthropic.claude-3-haiku-20240307-v1:0"
+        self.model_id = "arn:aws:bedrock:us-east-1:561287527800:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         self.system_prompts = [{"text": SYSTEM_PROMPT}]
         self.tool_config = TOOL_CONFIG
         self._lock = threading.Lock()
@@ -122,12 +123,6 @@ class Session:
         with self._lock:
             self.messages.append(user_msg)
 
-        #Previsit safeguard: if user asks about the current product and we have a current_url
-        # if _looks_like_current_product_question(user_message) and self.current_url:
-        #     try:
-        #         logger.info(f"[PREVISIT] Visiting current_url before LLM: {self.current_url}")
-        #         html = await self.visit_product(self.current_url)
-        #         previsit_text = f"[PREVISIT_CURRENT] url={self.current_url}\n{html or ''}"
         with self._lock:
             if self.current_url:
                 self.messages.append({
