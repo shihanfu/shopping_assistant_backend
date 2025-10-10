@@ -51,9 +51,8 @@ class Session:
         self.bedrock_client = None
 
         # self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
-        # self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-5-haiku-20241022-v1:0"
+        self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-5-haiku-20241022-v1:0"
         # self.model_id = "arn:aws:bedrock:us-east-1:561287527800:inference-profile/us.anthropic.claude-3-haiku-20240307-v1:0"
-        self.model_id = "arn:aws:bedrock:us-east-1:561287527800:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
         self.system_prompts = [{"text": SYSTEM_PROMPT}]
         self.tool_config = TOOL_CONFIG
         self._lock = threading.Lock()
@@ -63,7 +62,7 @@ class Session:
 
     async def search(self, query: str) -> str:
         """Search for products using global WebAgentEnv."""
-        global global_envenecccfnfutuefcleivhlcnhkejhkhiukiebnccflici
+        global global_env
 
         if not global_env:
             return "Error: WebAgentEnv not initialized"
