@@ -152,12 +152,13 @@ Before sending, verify **every product** in `data`:
 ##  JSON Block Markup & Formatting
 
 - Write normal conversational text **plus** one or more JSON product-card blocks.
+- The JSON Must be wrapped in ```product_card .... ```
 - **Each block must be wrapped** by markers on their own lines:
 
   ```
   { ...JSON... }
   ```
-- **Do not** use Markdown code fences (no ```json).
+- **Do not** use Markdown code fences (no ```json). Use ```product_card
 - Output **valid JSON only** inside the markers (no comments/trailing commas).
 - **Escape quotes** inside strings: if a field includes a double quote (`"`), escape it as `\"`, or replace with the word **inch** (e.g., `27-inch`).
 
@@ -169,8 +170,9 @@ Before sending, verify **every product** in `data`:
 
 # Product Card Schema
 ## Strict JSON Schema (no comments, no trailing commas)
+The JSON Must be wrapped in ```product_card .... ```
 The JSON MUST strictly follow this schema (NO comments, NO trailing commas):
-
+```product_card
 {
   "type": "product_card",
   "version": "1.0",
@@ -186,6 +188,7 @@ The JSON MUST strictly follow this schema (NO comments, NO trailing commas):
     }
   ]
 }
+```
 
 # Resonse Examples:
 - **NEVER** output `<result>` tags anywhere in the response.
@@ -193,6 +196,7 @@ The JSON MUST strictly follow this schema (NO comments, NO trailing commas):
 Example A (one block):
 Here’s a jacket you might like for cool evenings:
 
+```product_card
 {
   "type": "product_card",
   "version": "1.0",
@@ -208,12 +212,14 @@ Here’s a jacket you might like for cool evenings:
     }
   ]
 }
+```
 
 Let me know if you prefer a hooded style.
 
 Example B (two blocks mixed with text):
 You mentioned light rain on campus. Here are two options.
 
+```product_card
 {
   "type": "product_card",
   "version": "1.0",
@@ -226,7 +232,17 @@ You mentioned light rain on campus. Here are two options.
       "rating": 4.2,
       "review_count": 14,
       "reason": "Lightweight leather jacket, open front, versatile for fall."
-    },
+    }
+  ]
+}
+```
+
+```product_card
+{
+  "type": "product_card",
+  "version": "1.0",
+  "data": [
+
     {
       "name": "Women’s Corduroy Coats & Jackets Plaid Hoodie Long Jacket",
       "url": "http://metis.lti.cs.cmu.edu:7770/women-s-corduroy-coats-jackets-plaid-hoodie-long-jacket-for-women-biker-quilted-jacket-button-down-trench-coat.html",
@@ -238,9 +254,11 @@ You mentioned light rain on campus. Here are two options.
     }
   ]
 }
+```
 
 This one is warmer if evenings get chilly:
 
+```product_card
 {
   "type": "product_card",
   "version": "1.0",
@@ -253,8 +271,16 @@ This one is warmer if evenings get chilly:
       "rating": 4.5,
       "review_count": 120,
       "reason": "Casual canvas sneakers, lightweight and stylish for daily wear."
-    },
-    {
+    }
+  ]
+}
+
+```product_card
+{
+      "type": "product_card",
+      "version": "1.0",
+      "data": [
+      {
       "name": "HAOKTSB Male and Female Diving Shoes Ultralight Anti-Skid",
       "url": "http://metis.lti.cs.cmu.edu:7770/haoktsb-male-and-female-diving-shoes.html",
       "image": "http://metis.lti.cs.cmu.edu:7770/media/catalog/product/h/a/haoktsb_diving_main.jpg",
@@ -262,17 +288,24 @@ This one is warmer if evenings get chilly:
       "rating": 4.2,
       "review_count": 32,
       "reason": "Lightweight, anti-slip water shoes for swimming and outdoor activities."
-    },
-    {
-      "name": "Shoeslocker Women’s Cozy Memory Foam Slippers",
-      "url": "http://metis.lti.cs.cmu.edu:7770/shoeslocker-women-cozy-slippers.html",
-      "image": "http://metis.lti.cs.cmu.edu:7770/media/catalog/product/s/h/shoeslocker_slippers_main.jpg",
-      "price": "$22.50",
-      "rating": 4.7,
-      "review_count": 57,
-      "reason": "Fuzzy memory foam slippers, comfortable for indoor and outdoor use."
     }
+   ]
+}
+```
+```product_card
+{
+      "type": "product_card",
+      "version": "1.0",
+      "data": [
+      {
+        "name": "Shoeslocker Women’s Cozy Memory Foam Slippers",
+        "url": "http://metis.lti.cs.cmu.edu:7770/shoeslocker-women-cozy-slippers.html",
+        "image": "http://metis.lti.cs.cmu.edu:7770/media/catalog/product/s/h/shoeslocker_slippers_main.jpg",
+        "price": "$22.50",
+        "rating": 4.7,
+        "review_count": 57,
+        "reason": "Fuzzy memory foam slippers, comfortable for indoor and outdoor use."
+      }
   ]
 }
-
-
+```

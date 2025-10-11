@@ -26,7 +26,7 @@ import re
 
 logger = logging.getLogger(__name__)
 # add a file logger
-file_logger = logging.FileHandler('/home/ubuntu/shopping_assistant/shopping_assistant.log')
+file_logger = logging.FileHandler('./shopping_assistant.log')
 file_logger.setLevel(logging.INFO)
 file_logger.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 logger.addHandler(file_logger)
@@ -109,6 +109,246 @@ class Session:
 
     
 
+    async def generate_conversation_stream(self, user_message: str):
+        """
+        Streaming version that yields chunks to the client as they arrive.
+        Yields dict chunks: {"type": "text", "content": "..."} or {"type": "tool", "name": "search"}
+        """
+        _function_start_ms = time.perf_counter()
+        # Add user message to conversation
+        user_msg = {
+            "role": "user",
+            "content": [{"text": user_message}],
+            "createdAt": _now_iso()
+        }
+        with self._lock:
+            self.messages.append(user_msg)
+
+        with self._lock:
+            if self.current_url:
+                self.messages.append({
+                    "role": "user",
+                    "content": [{"text": "The current url the user is on is: " + self.current_url}],
+                    "createdAt": _now_iso(),
+                    "hidden": True
+                })
+
+        temperature = 0.5
+        top_k = 200
+
+        inference_config = {"temperature": temperature}
+        additional_model_fields = {"top_k": top_k}
+
+        try:
+            _llm_start = time.perf_counter()
+            sanitized_messages = [{"role": m["role"], "content": m["content"]} for m in self.messages]
+            logger.info(f"sanitized_messages: {sanitized_messages}")
+            response = self.bedrock_client.converse_stream(
+                modelId=self.model_id,
+                messages=sanitized_messages,
+                system=self.system_prompts,
+                inferenceConfig=inference_config,
+                additionalModelRequestFields=additional_model_fields,
+                toolConfig=self.tool_config,
+            )
+            _llm_elapsed_ms = (time.perf_counter() - _llm_start) * 1000.0
+            logger.info(f"[TIMING] LLM converse (initial) took {_llm_elapsed_ms:.2f} ms")
+
+            # Process streaming response and yield chunks
+            output_message = {"role": "assistant", "content": []}
+            stop_reason = None
+
+            for chunk in response["stream"]:
+                if "contentBlockStart" in chunk:
+                    content_block = chunk["contentBlockStart"]["start"]
+                    if "toolUse" in content_block:
+                        output_message["content"].append({"toolUse": content_block["toolUse"]})
+                elif "contentBlockDelta" in chunk:
+                    delta = chunk["contentBlockDelta"]["delta"]
+                    if "text" in delta:
+                        # Find or create text block
+                        if not output_message["content"] or "text" not in output_message["content"][-1]:
+                            output_message["content"].append({"text": ""})
+                        output_message["content"][-1]["text"] += delta["text"]
+                        # YIELD TEXT CHUNK TO CLIENT
+                        yield {"type": "text", "content": delta["text"]}
+                    elif "toolUse" in delta:
+                        # Update last toolUse block
+                        if output_message["content"] and "toolUse" in output_message["content"][-1]:
+                            if "input" not in output_message["content"][-1]["toolUse"]:
+                                output_message["content"][-1]["toolUse"]["input"] = ""
+                            output_message["content"][-1]["toolUse"]["input"] += delta["toolUse"]["input"]
+                elif "messageStop" in chunk:
+                    stop_reason = chunk["messageStop"]["stopReason"]
+                    # json.loads all tool input if there is any
+                    for content in output_message["content"]:
+                        if "toolUse" in content:
+                            content["toolUse"]["input"] = json.loads(content["toolUse"]["input"])
+
+            output_message['createdAt'] = _now_iso()
+            with self._lock:
+                self.messages.append(output_message)
+        except Exception as e:
+            _llm_elapsed_ms = (time.perf_counter() - _llm_start) * 1000.0
+            logger.error(f"[TIMING] LLM converse (initial) failed after {_llm_elapsed_ms:.2f} ms: {e}")
+            error_message = {
+                "role": "assistant",
+                "content": [{"text": f"I encountered an error: {str(e)}"}]
+            }
+            self.messages.append(error_message)
+            yield {"type": "error", "content": str(e)}
+            return
+
+        # Handle tool use loop
+        while stop_reason == 'tool_use':
+            tool_requests = output_message['content']
+            tool_result_contents = []
+
+            for tool_request in tool_requests:
+                if 'toolUse' in tool_request:
+                    logger.info(f"tool_request: {tool_request}")
+                    tool = tool_request['toolUse']
+                    tool_name = tool['name']
+                    tool_input = tool['input']
+                    tool_use_id = tool['toolUseId']
+                    logger.info(f"🛠️ Tool used: {tool_name} with input {tool_input}")
+                    
+                    # Notify client about tool use
+                    yield {"type": "tool_use", "tool": tool_name, "input": tool_input}
+
+                    # Handle async tool calls
+                    try:
+                        _tool_start = time.perf_counter()
+                        if tool_name == 'search':
+                            result_text = await self.search(tool_input['query'])
+                            tool_result = {
+                                "toolUseId": tool_use_id,
+                                "content": [{"text": result_text}]
+                            }
+                        elif tool_name == 'visit_product':
+                            logger.info(f"[TOOL] visit_product input: {tool_input}")
+                            result_text = await self.visit_product(tool_input['product_url'])
+                            logger.info(f"[TOOL] visit_product html_len={len(result_text or '')}")
+                            tool_result = {
+                                "toolUseId": tool_use_id,
+                                "content": [{"text": result_text}]
+                            }
+                        else:
+                            tool_result = {
+                                "toolUseId": tool_use_id,
+                                "content": [{"text": f"Unknown tool: {tool_name}"}],
+                                "status": "error"
+                            }
+                    except Exception as e:
+                        import traceback
+                        logger.error(f"Error executing tool {tool_name}: {traceback.format_exc()}")
+                        logger.error(f"Error executing tool {tool_name}: {e}")
+                        tool_result = {
+                            "toolUseId": tool_use_id,
+                            "content": [{"text": f"Error executing tool {tool_name}: {str(e)}"}],
+                            "status": "error"
+                        }
+                    finally:
+                        try:
+                            _tool_elapsed_ms = (time.perf_counter() - _tool_start) * 1000.0
+                            logger.info(f"[TIMING] Tool '{tool_name}' took {_tool_elapsed_ms:.2f} ms")
+                        except Exception:
+                            pass
+
+                    tool_result_contents.append({"toolResult": tool_result})
+                    # Notify client tool is complete
+                    yield {"type": "tool_complete", "tool": tool_name}
+
+            if tool_result_contents:
+                # Add tool results to messages
+                self.messages.append({
+                    "role": "user",
+                    "content": tool_result_contents
+                })
+
+                # Follow-up model call after tools
+                try:
+                    _llm_follow_start = time.perf_counter()
+                    sanitized_messages = [{"role": m["role"], "content": m["content"]} for m in self.messages]
+                    response = self.bedrock_client.converse_stream(
+                        modelId=self.model_id,
+                        messages=sanitized_messages,
+                        system=self.system_prompts,
+                        inferenceConfig=inference_config,
+                        additionalModelRequestFields=additional_model_fields,
+                        toolConfig=self.tool_config
+                    )
+                    _llm_follow_elapsed_ms = (time.perf_counter() - _llm_follow_start) * 1000.0
+                    logger.info(f"[TIMING] LLM converse (after tools) took {_llm_follow_elapsed_ms:.2f} ms")
+                    
+                    # Process streaming response
+                    output_message = {"role": "assistant", "content": []}
+                    stop_reason = None
+
+                    for chunk in response["stream"]:
+                        if "contentBlockStart" in chunk:
+                            content_block = chunk["contentBlockStart"]["start"]
+                            if "toolUse" in content_block:
+                                output_message["content"].append({"toolUse": content_block["toolUse"]})
+                        elif "contentBlockDelta" in chunk:
+                            delta = chunk["contentBlockDelta"]["delta"]
+                            if "text" in delta:
+                                # Find or create text block
+                                if not output_message["content"] or "text" not in output_message["content"][-1]:
+                                    output_message["content"].append({"text": ""})
+                                output_message["content"][-1]["text"] += delta["text"]
+                                # YIELD TEXT CHUNK TO CLIENT
+                                yield {"type": "text", "content": delta["text"]}
+                            elif "toolUse" in delta:
+                                # Update last toolUse block
+                                if output_message["content"] and "toolUse" in output_message["content"][-1]:
+                                    output_message["content"][-1]["toolUse"]["input"] = delta["toolUse"]["input"]
+                        elif "messageStop" in chunk:
+                            stop_reason = chunk["messageStop"]["stopReason"]
+
+                    logger.info(f"output_message: {output_message}")
+                    self.messages.append(output_message)
+                except Exception as e:
+                    _llm_follow_elapsed_ms = (time.perf_counter() - _llm_follow_start) * 1000.0
+                    logger.error(f"[TIMING] LLM converse (after tools) failed after {_llm_follow_elapsed_ms:.2f} ms: {e}")
+                    error_message = {
+                        "role": "assistant",
+                        "content": [{"text": f"I encountered an error processing the tool results: {str(e)}"}]
+                    }
+                    self.messages.append(error_message)
+                    yield {"type": "error", "content": str(e)}
+                    return
+            else:
+                break
+
+        # remove historical tool use and tool result from messages
+        new_messages = []
+        for m in self.messages:
+            if m['role'] == 'assistant':
+                should_remove = False
+                for c in m['content']:
+                    if 'toolUse' in c:
+                        should_remove = True
+                        break
+                if not should_remove:
+                    new_messages.append(m)
+            if m['role'] == 'user':
+                should_remove = False
+                for c in m['content']:  
+                    if 'toolResult' in c:
+                        should_remove = True
+                        break
+                if not should_remove:
+                    new_messages.append(m)
+        print(f"new_messages: {new_messages}")
+        self.messages = new_messages
+        
+        _function_elapsed_ms = (time.perf_counter() - _function_start_ms) * 1000.0
+        logger.info(f"[TIMING] generate_conversation_stream total {_function_elapsed_ms:.2f} ms")
+        
+        # Signal completion
+        yield {"type": "done"}
+
     async def generate_conversation_async(self, user_message: str):
         """
         Sends messages to a model with async tool handling.
@@ -145,7 +385,7 @@ class Session:
             sanitized_messages = [{"role": m["role"], "content": m["content"]} for m in self.messages]
             logger.info(f"sanitized_messages: {sanitized_messages}")
             logger.info(f"system_prompts: {self.system_prompts}")
-            response = self.bedrock_client.converse(
+            response = self.bedrock_client.converse_stream(
                 modelId=self.model_id,
                 messages=sanitized_messages,
                 system=self.system_prompts,
@@ -159,7 +399,30 @@ class Session:
             _llm_elapsed_ms = (time.perf_counter() - _llm_start) * 1000.0
             logger.info(f"[TIMING] LLM converse (initial) took {_llm_elapsed_ms:.2f} ms")
 
-            output_message = response['output']['message']
+            # Process streaming response
+            output_message = {"role": "assistant", "content": []}
+            stop_reason = None
+
+            for chunk in response["stream"]:
+                if "contentBlockStart" in chunk:
+                    content_block = chunk["contentBlockStart"]["start"]
+                    if "toolUse" in content_block:
+                        output_message["content"].append({"toolUse": content_block["toolUse"]})
+                elif "contentBlockDelta" in chunk:
+                    delta = chunk["contentBlockDelta"]["delta"]
+                    if "text" in delta:
+                        # Find or create text block
+                        if not output_message["content"] or "text" not in output_message["content"][-1]:
+                            output_message["content"].append({"text": ""})
+                        output_message["content"][-1]["text"] += delta["text"]
+                    elif "toolUse" in delta:
+                        # Update last toolUse block
+                        if output_message["content"] and "toolUse" in output_message["content"][-1]:
+                            output_message["content"][-1]["toolUse"]["input"] = delta["toolUse"]["input"]
+                elif "messageStop" in chunk:
+                    stop_reason = chunk["messageStop"]["stopReason"]
+
+            response['stopReason'] = stop_reason
             output_message['createdAt'] = _now_iso()
             with self._lock:
                 self.messages.append(output_message)
@@ -241,7 +504,7 @@ class Session:
                     sanitized_messages = [{"role": m["role"], "content": m["content"]} for m in self.messages]
                     logger.info(f"sanitized_messages: {sanitized_messages}")
                     logger.info(f"system_prompts: {self.system_prompts}")
-                    response = self.bedrock_client.converse(
+                    response = self.bedrock_client.converse_stream(
                         modelId=self.model_id,
                         messages=sanitized_messages,
                         system=self.system_prompts,
@@ -251,8 +514,31 @@ class Session:
                     )
                     _llm_follow_elapsed_ms = (time.perf_counter() - _llm_follow_start) * 1000.0
                     logger.info(f"[TIMING] LLM converse (after tools) took {_llm_follow_elapsed_ms:.2f} ms")
-                    output_message = response['output']['message']
-                    logger.info(f"response: {response}")
+                    
+                    # Process streaming response
+                    output_message = {"role": "assistant", "content": []}
+                    stop_reason = None
+
+                    for chunk in response["stream"]:
+                        if "contentBlockStart" in chunk:
+                            content_block = chunk["contentBlockStart"]["start"]
+                            if "toolUse" in content_block:
+                                output_message["content"].append({"toolUse": content_block["toolUse"]})
+                        elif "contentBlockDelta" in chunk:
+                            delta = chunk["contentBlockDelta"]["delta"]
+                            if "text" in delta:
+                                # Find or create text block
+                                if not output_message["content"] or "text" not in output_message["content"][-1]:
+                                    output_message["content"].append({"text": ""})
+                                output_message["content"][-1]["text"] += delta["text"]
+                            elif "toolUse" in delta:
+                                # Update last toolUse block
+                                if output_message["content"] and "toolUse" in output_message["content"][-1]:
+                                    output_message["content"][-1]["toolUse"]["input"] = delta["toolUse"]["input"]
+                        elif "messageStop" in chunk:
+                            stop_reason = chunk["messageStop"]["stopReason"]
+
+                    response['stopReason'] = stop_reason
                     logger.info(f"output_message: {output_message}")
                     self.messages.append(output_message)
                 except Exception as e:
@@ -307,7 +593,7 @@ def create_session():
     logger.info(f"Created new session: {session_id}")
     return session_id
 
-def get_session(session_id: str):
+def get_session(session_id: str) -> Session:
     """Get session by ID."""
     with session_lock:
         return sessions.get(session_id)
@@ -390,6 +676,87 @@ async def create_session_api():
         }), 200
     except Exception as e:
         logger.error(f"Error creating session: {e}")
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/chat-stream', methods=['GET'])
+async def chat_stream_api():
+    """API endpoint to send a message and stream assistant response."""
+    try:
+        data = request.args
+        if not data or 'session_id' not in data or 'message' not in data:
+            return jsonify({
+                "success": False,
+                "error": "Missing required fields: session_id and message"
+            }), 400
+        
+        session_id = data['session_id']
+        message = data['message']
+        
+        session = get_session(session_id)
+        if not session:
+            return jsonify({
+                "success": False,
+                "error": "Session not found"
+            }), 404
+        
+        # Check if global environment is ready
+        if global_env is None:
+            return jsonify({
+                "success": False,
+                "error": "Global environment not initialized"
+            }), 503
+        
+        from urllib.parse import urlparse
+        
+        current_url = data.get('current_url')
+        logger.info(f"Received current_url: {current_url}")
+
+        if current_url:
+            try:
+                parsed = urlparse(current_url)
+                host = parsed.hostname
+                allowed = (
+                    parsed.scheme in ('http', 'https') and host and (
+                        host.endswith('metis.lti.cs.cmu.edu') or host == '52.91.223.130'
+                    )
+                )
+                if allowed:
+                    session.current_url = current_url
+                    logger.info(f"[SESSION] {session_id} current_url set to {session.current_url}")
+                else:
+                    logger.warning(f"[SESSION] rejected current_url={current_url} (scheme={parsed.scheme}, host={host})")
+            except Exception as e:
+                logger.warning(f"[SESSION] invalid current_url={current_url}, err={e}")
+            
+        # Initialize Bedrock client
+        await session.initialize_bedrock()
+        
+        # Stream the conversation
+        async def generate():
+            try:
+                async for chunk in session.generate_conversation_stream(message):
+                    # Send each chunk as Server-Sent Event
+                    yield f"data: {json.dumps(chunk)}\n\n"
+                    # await asyncio.sleep(2)
+            except Exception as e:
+                logger.error(f"Error in streaming: {e}")
+                import traceback
+                traceback.print_exc()
+                yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        
+        return generate(), {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no'
+        }
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        logger.error(f"Error in chat stream API: {e}")
         return jsonify({
             "success": False,
             "error": str(e)

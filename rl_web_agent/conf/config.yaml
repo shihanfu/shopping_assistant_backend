@@ -31,7 +31,7 @@ environment:
     wikipedia: "ec2-3-131-244-37.us-east-2.compute.amazonaws.com:8888"
 
   init_script_path: "rl_web_agent/javascript/initscript.js"   # Path to JavaScript init script
-  parser_script_path: "/home/ubuntu/shopping_assistant/shopping_assistant_backend/rl_web_agent/javascript/parser.js"     # Path to JavaScript parser script
+  parser_script_path: "rl_web_agent/javascript/parser.js"     # Path to JavaScript parser script
 
   # Proxy configuration
   proxy:
