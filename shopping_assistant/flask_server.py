@@ -14,6 +14,7 @@ from botocore.exceptions import ClientError
 from shopping_assistant.prompts.system_prompt import SYSTEM_PROMPT
 # from tool_config import TOOL_CONFIG
 from shopping_assistant.tool_config import TOOL_CONFIG
+from shopping_assistant.config import get_model_id, get_temperature, get_top_k, get_server_port, get_server_host
 
 from rl_web_agent.env import WebAgentEnv
 import hydra
@@ -51,7 +52,7 @@ class Session:
         self.bedrock_client = None
 
         # self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
-        self.model_id = "arn:aws:bedrock:us-east-1:248189905876:inference-profile/us.anthropic.claude-3-5-haiku-20241022-v1:0"
+        self.model_id = get_model_id()
         # self.model_id = "arn:aws:bedrock:us-east-1:561287527800:inference-profile/us.anthropic.claude-3-haiku-20240307-v1:0"
         self.system_prompts = [{"text": SYSTEM_PROMPT}]
         self.tool_config = TOOL_CONFIG
@@ -132,8 +133,8 @@ class Session:
                     "hidden": True
                 })
 
-        temperature = 0.5
-        top_k = 200
+        temperature = get_temperature()
+        top_k = get_top_k()
 
         inference_config = {"temperature": temperature}
         additional_model_fields = {"top_k": top_k}
@@ -373,8 +374,8 @@ class Session:
         #     except Exception as e:
         #         logger.warning(f"[PREVISIT] failed: {e}")
 
-        temperature = 0.5
-        top_k = 200
+        temperature = get_temperature()
+        top_k = get_top_k()
 
         inference_config = {"temperature": temperature}
         additional_model_fields = {"top_k": top_k}
@@ -906,4 +907,4 @@ async def health_check():
 
 if __name__ == '__main__':
     # Start Quart server
-    app.run(host='0.0.0.0', port=5000, debug=False) 
+    app.run(host=get_server_host(), port=get_server_port(), debug=False) 
