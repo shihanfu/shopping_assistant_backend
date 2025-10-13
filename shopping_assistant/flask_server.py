@@ -141,7 +141,7 @@ class Session:
 
         try:
             _llm_start = time.perf_counter()
-            sanitized_messages = [{"role": m["role"], "content": m["content"]} for m in self.messages]
+            sanitized_messages = _normalize_tool_inputs(self.messages)
             logger.info(f"sanitized_messages: {sanitized_messages}")
             response = self.bedrock_client.converse_stream(
                 modelId=self.model_id,
@@ -269,7 +269,7 @@ class Session:
                 # Follow-up model call after tools
                 try:
                     _llm_follow_start = time.perf_counter()
-                    sanitized_messages = [{"role": m["role"], "content": m["content"]} for m in self.messages]
+                    sanitized_messages = _normalize_tool_inputs(self.messages)
                     response = self.bedrock_client.converse_stream(
                         modelId=self.model_id,
                         messages=sanitized_messages,
@@ -382,7 +382,7 @@ class Session:
 
         try:
             _llm_start = time.perf_counter()
-            sanitized_messages = [{"role": m["role"], "content": m["content"]} for m in self.messages]
+            sanitized_messages = _normalize_tool_inputs(self.messages)
             logger.info(f"sanitized_messages: {sanitized_messages}")
             logger.info(f"system_prompts: {self.system_prompts}")
             response = self.bedrock_client.converse_stream(
@@ -501,7 +501,7 @@ class Session:
                 # Single follow-up model call after providing all tool results
                 try:
                     _llm_follow_start = time.perf_counter()
-                    sanitized_messages = [{"role": m["role"], "content": m["content"]} for m in self.messages]
+                    sanitized_messages = _normalize_tool_inputs(self.messages)
                     logger.info(f"sanitized_messages: {sanitized_messages}")
                     logger.info(f"system_prompts: {self.system_prompts}")
                     response = self.bedrock_client.converse_stream(
@@ -607,6 +607,27 @@ def cleanup_session(session_id: str):
 
 def _now_iso():
     return datetime.now().isoformat()
+
+def _normalize_tool_inputs(messages):
+    """Ensure all assistant toolUse.input fields are JSON objects (not strings)."""
+    norm = []
+    for m in messages:
+        m2 = {"role": m["role"], "content": []}
+        for c in m.get("content", []):
+            if "toolUse" in c:
+                tu = dict(c["toolUse"])
+                inp = tu.get("input")
+                if isinstance(inp, str):
+                    try:
+                        tu["input"] = json.loads(inp)
+                    except Exception:
+                        tu["input"] = {}
+                elif inp is None:
+                    tu["input"] = {}
+                c = {"toolUse": tu}
+            m2["content"].append(c)
+        norm.append(m2)
+    return norm
 
 def _content_to_text(content_blocks):
     # Includes toolUse/toolResult
