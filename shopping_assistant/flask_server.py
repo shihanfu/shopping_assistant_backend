@@ -183,7 +183,12 @@ class Session:
                     # json.loads all tool input if there is any
                     for content in output_message["content"]:
                         if "toolUse" in content:
-                            content["toolUse"]["input"] = json.loads(content["toolUse"]["input"])
+                            inp = content["toolUse"]["input"]
+                            if isinstance(inp, str):
+                                try:
+                                    content["toolUse"]["input"] = json.loads(inp)
+                                except Exception:
+                                    content["toolUse"]["input"] = {}
 
             output_message['createdAt'] = _now_iso()
             with self._lock:
@@ -302,9 +307,20 @@ class Session:
                             elif "toolUse" in delta:
                                 # Update last toolUse block
                                 if output_message["content"] and "toolUse" in output_message["content"][-1]:
-                                    output_message["content"][-1]["toolUse"]["input"] = delta["toolUse"]["input"]
+                                    if "input" not in output_message["content"][-1]["toolUse"]:
+                                        output_message["content"][-1]["toolUse"]["input"] = ""
+                                    output_message["content"][-1]["toolUse"]["input"] += delta["toolUse"]["input"]
                         elif "messageStop" in chunk:
                             stop_reason = chunk["messageStop"]["stopReason"]
+                            # json.loads all tool input if there is any
+                            for content in output_message["content"]:
+                                if "toolUse" in content:
+                                    inp = content["toolUse"]["input"]
+                                    if isinstance(inp, str):
+                                        try:
+                                            content["toolUse"]["input"] = json.loads(inp)
+                                        except Exception:
+                                            content["toolUse"]["input"] = {}
 
                     logger.info(f"output_message: {output_message}")
                     self.messages.append(output_message)
@@ -418,9 +434,20 @@ class Session:
                     elif "toolUse" in delta:
                         # Update last toolUse block
                         if output_message["content"] and "toolUse" in output_message["content"][-1]:
-                            output_message["content"][-1]["toolUse"]["input"] = delta["toolUse"]["input"]
+                            if "input" not in output_message["content"][-1]["toolUse"]:
+                                output_message["content"][-1]["toolUse"]["input"] = ""
+                            output_message["content"][-1]["toolUse"]["input"] += delta["toolUse"]["input"]
                 elif "messageStop" in chunk:
                     stop_reason = chunk["messageStop"]["stopReason"]
+                    # json.loads all tool input if there is any
+                    for content in output_message["content"]:
+                        if "toolUse" in content:
+                            inp = content["toolUse"]["input"]
+                            if isinstance(inp, str):
+                                try:
+                                    content["toolUse"]["input"] = json.loads(inp)
+                                except Exception:
+                                    content["toolUse"]["input"] = {}
 
             response['stopReason'] = stop_reason
             output_message['createdAt'] = _now_iso()
@@ -534,9 +561,20 @@ class Session:
                             elif "toolUse" in delta:
                                 # Update last toolUse block
                                 if output_message["content"] and "toolUse" in output_message["content"][-1]:
-                                    output_message["content"][-1]["toolUse"]["input"] = delta["toolUse"]["input"]
+                                    if "input" not in output_message["content"][-1]["toolUse"]:
+                                        output_message["content"][-1]["toolUse"]["input"] = ""
+                                    output_message["content"][-1]["toolUse"]["input"] += delta["toolUse"]["input"]
                         elif "messageStop" in chunk:
                             stop_reason = chunk["messageStop"]["stopReason"]
+                            # json.loads all tool input if there is any
+                            for content in output_message["content"]:
+                                if "toolUse" in content:
+                                    inp = content["toolUse"]["input"]
+                                    if isinstance(inp, str):
+                                        try:
+                                            content["toolUse"]["input"] = json.loads(inp)
+                                        except Exception:
+                                            content["toolUse"]["input"] = {}
 
                     response['stopReason'] = stop_reason
                     logger.info(f"output_message: {output_message}")
