@@ -24,6 +24,7 @@ from datetime import datetime
 import time
 import sys
 import re
+from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 # add a file logger
@@ -61,10 +62,70 @@ class Session:
         print(f"Session initialized with model {self.model_id}")
 
 
+    def parse_products_from_search_html(self, html: str) -> dict:
+        soup = BeautifulSoup(html, "html.parser")
+
+
+        grid = soup.select_one("div.products.wrapper.grid.products-grid")
+        if not grid:
+            grid = soup.select_one("div.products.wrapper") or soup
+
+        ol = grid.select_one("ol.products.list.items.product-items")
+        if not ol:
+            candidates = grid.select("li.item.product.product-item")
+        else:
+            candidates = ol.select("li.item.product.product-item")
+
+        products = []
+        for li in candidates:
+            a = li.select_one("a.product.photo, a.product-item-link, a[href]")
+            url = a.get("href").strip() if a and a.has_attr("href") else None
+
+            title_el = li.select_one(".product-item-link") or li.select_one(".product.name a")
+            title = title_el.get_text(strip=True) if title_el else None
+
+
+            img_el = li.select_one("img")
+            image = img_el.get("src").strip() if img_el and img_el.has_attr("src") else None
+
+
+            price_text = None
+            price = None
+            price_wrapper = li.select_one(".price-wrapper") or li.select_one(".price")
+            if price_wrapper:
+                price_text = price_wrapper.get_text(strip=True)
+                m = re.search(r"([0-9]+[.,]?[0-9]*)", price_text.replace(",", ""))
+                if m:
+                    try:
+                        price = float(m.group(1))
+                    except Exception:
+                        price = None
+
+
+            sku = None
+            info_div = li.select_one(".product-item-info")
+            if info_div and info_div.has_attr("data-product-sku"):
+                sku = info_div["data-product-sku"]
+
+            products.append({
+                "title": title,
+                "url": url,
+                "price": price,
+                "price_text": price_text,
+                "image": image,
+                "sku": sku
+            })
+
+        return {
+            "products": products,
+            "count": len(products)
+        }
+    
+
     async def search(self, query: str) -> str:
         """Search for products using global WebAgentEnv."""
         global global_env
-
+        
         if not global_env:
             return "Error: WebAgentEnv not initialized"
         
@@ -80,12 +141,13 @@ class Session:
             await global_env.goto_url(search_url)
             print("Goto URL done")
             observation = await global_env.observation()
-            # print the observed html
-            print(observation["html"])
-            logger.info(f"Observation: {observation}")
-            # Return the HTML content directly as the tool response
-            return observation.get("html", "No HTML content available")
-            
+            html = observation.get("html", "No HTML content available")
+            if not html:
+                return json.dumps({"error": "No HTML content available"})
+
+            data = self.parse_products_from_search_html(html)
+            logger.info(f"data: {data}")
+            return json.dumps(data, ensure_ascii=False)
         except Exception as e:
             logger.error(f"Error in search function: {e}")
             return f"Error during search: {str(e)}"
