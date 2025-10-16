@@ -48,7 +48,13 @@ Please follow this outline of conversation in an online shopping senario.
 - Resonse: 
     - Begin with a friendly lead-in, e.g.:
     “Great! I found a selection of women’s jackets. Here are some nice options:”
-    - Present exactly 7 products from the search results (no more, no less).
+    - Present exactly 5 products from the search results (no more, no less).
+    - Avoid simply taking the first 5 results; instead, select distinctive ones.
+    - These 5 should reflect **diversity**, not just the first few results. 
+      - Try to include a mix of:
+          - different **price ranges** (e.g., affordable, mid-range, premium)
+          - different **brands or styles**
+          - or products that emphasize **different key features** (e.g., lightweight, durable, high-performance)
     - For each product:
         - Present a JSON product card (following schema rules).
         - Add one short, polite, and jargon-free reason why you recommend it (e.g., “Lightweight and versatile for daily wear”).

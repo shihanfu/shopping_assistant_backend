@@ -123,34 +123,59 @@ class Session:
     
 
     async def search(self, query: str) -> str:
-        """Search for products using global WebAgentEnv."""
+        """Search for products using global WebAgentEnv. Collects products from up to 3 pages."""
         global global_env
         
         if not global_env:
             return "Error: WebAgentEnv not initialized"
         
-        try:
-            # URL encode the query for the search URL
-            import urllib.parse
-            encoded_query = urllib.parse.quote(query)
-            url_template = "http://52.91.223.130:7770/catalogsearch/result/?q={query}"
-            search_url = url_template.format(query=encoded_query)
+        import urllib.parse
+        encoded_query = urllib.parse.quote(query)
+        
+        # Collect products from multiple pages
+        all_products = []
+        
+        # Loop through up to 3 pages
+        for page_num in [1, 2, 3]:
+            # Build URL for each page
+            if page_num == 1:
+                search_url = f"http://52.91.223.130:7770/catalogsearch/result/index/?q={encoded_query}&product_list_limit=36"
+            else:
+                search_url = f"http://52.91.223.130:7770/catalogsearch/result/index/?p={page_num}&product_list_limit=36&q={encoded_query}"
             
-            # await global_env.step(f'{{"action": "goto_url", "url": "{search_url}"}}')
-            print(f"Searching for {query} at {search_url}")
+            logger.info(f"Searching page {page_num} at {search_url}")
+            
+            # Visit this page
             await global_env.goto_url(search_url)
-            print("Goto URL done")
+            logger.info(f"Page {page_num} loaded")
+            
+            # Get HTML - fail fast if key missing
             observation = await global_env.observation()
-            html = observation.get("html", "No HTML content available")
-            if not html:
-                return json.dumps({"error": "No HTML content available"})
-
+            html = observation["html"]
+            
+            # Parse products from this page
             data = self.parse_products_from_search_html(html)
-            logger.info(f"data: {data}")
-            return json.dumps(data, ensure_ascii=False)
-        except Exception as e:
-            logger.error(f"Error in search function: {e}")
-            return f"Error during search: {str(e)}"
+            products_on_page = data["products"]
+            logger.info(f"products_on_page: {products_on_page}")
+            
+            logger.info(f"Found {len(products_on_page)} products on page {page_num}")
+            
+            # Add to total list
+            all_products.extend(products_on_page)
+            
+            # If this page has less than 36 products, no more pages to fetch
+            if len(products_on_page) < 36:
+                logger.info(f"Page {page_num} has less than 36 products, stopping")
+                break
+        
+        # Return all products
+        result = {
+            "products": all_products,
+            "count": len(all_products)
+        }
+        
+        logger.info(f"Total products found: {len(all_products)}")
+        return json.dumps(result, ensure_ascii=False)
 
     async def visit_product(self, product_url: str) -> str:
         """Visit a product page using global WebAgentEnv."""
