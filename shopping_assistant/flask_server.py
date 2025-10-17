@@ -145,6 +145,9 @@ class Session:
             
             logger.info(f"Searching page {page_num} at {search_url}")
             
+            await global_env.page.wait_for_timeout(3000)  # 强制等3秒
+            html = await global_env.page.content()  # 直接从page拿HTML
+            logger.info(f" the html contains 'product-item': {'product-item' in html}")
             # Visit this page
             await global_env.goto_url(search_url)
             logger.info(f"Page {page_num} loaded")
