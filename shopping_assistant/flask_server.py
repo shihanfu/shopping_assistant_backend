@@ -61,69 +61,6 @@ class Session:
         self.current_url = None
         print(f"Session initialized with model {self.model_id}")
 
-
-    def parse_products_from_search_html(self, html: str) -> dict:
-        soup = BeautifulSoup(html, "html.parser")
-
-        logger.info(f"HTML length: {len(html)}")
-
-        # ========== search product items directly ==========
-        candidates = soup.select("li.item.product.product-item")
-        logger.info(f"number of candidates: {len(candidates)}")
-
-        if len(candidates) == 0:
-            # if still not found, print the html around product-item
-            if 'product-item' in html:
-                matches = re.findall(r'.{0,200}product-item.{0,200}', html)
-                logger.info(f"the html around product-item: {matches[:3]}")
-        # ========== end of search product items directly ==========
-
-        products = []
-        for li in candidates:
-            a = li.select_one("a.product.photo, a.product-item-link, a[href]")
-            url = a.get("href").strip() if a and a.has_attr("href") else None
-
-            title_el = li.select_one(".product-item-link") or li.select_one(".product.name a")
-            title = title_el.get_text(strip=True) if title_el else None
-
-
-            img_el = li.select_one("img")
-            image = img_el.get("src").strip() if img_el and img_el.has_attr("src") else None
-
-
-            price_text = None
-            price = None
-            price_wrapper = li.select_one(".price-wrapper") or li.select_one(".price")
-            if price_wrapper:
-                price_text = price_wrapper.get_text(strip=True)
-                m = re.search(r"([0-9]+[.,]?[0-9]*)", price_text.replace(",", ""))
-                if m:
-                    try:
-                        price = float(m.group(1))
-                    except Exception:
-                        price = None
-
-
-            sku = None
-            info_div = li.select_one(".product-item-info")
-            if info_div and info_div.has_attr("data-product-sku"):
-                sku = info_div["data-product-sku"]
-
-            products.append({
-                "title": title,
-                "url": url,
-                "price": price,
-                "price_text": price_text,
-                "image": image,
-                "sku": sku
-            })
-
-        return {
-            "products": products,
-            "count": len(products)
-        }
-    
-
     async def search(self, query: str) -> str:
         """Search for products using global WebAgentEnv. Collects products from up to 3 pages."""
         global global_env
@@ -156,32 +93,10 @@ class Session:
             observation = await global_env.observation()
             html = observation["html"]
 
-            #html = await global_env.page.content()  # 直接从page拿HTML
-            logger.info(f" the html contains 'product-item': {'product-item' in html}")
-
-            # Parse products from this page
-            data = self.parse_products_from_search_html(html)
-            products_on_page = data["products"]
-            logger.info(f"products_on_page: {products_on_page}")
-            
-            logger.info(f"Found {len(products_on_page)} products on page {page_num}")
-            
-            # Add to total list
-            all_products.extend(products_on_page)
-            
-            # If this page has less than 36 products, no more pages to fetch
-            if len(products_on_page) < 36:
-                logger.info(f"Page {page_num} has less than 36 products, stopping")
-                break
+            logger.info(f"Page {page_num} loaded, HTML length: {len(html)}")
         
-        # Return all products
-        result = {
-            "products": all_products,
-            "count": len(all_products)
-        }
-        
-        logger.info(f"Total products found: {len(all_products)}")
-        return json.dumps(result, ensure_ascii=False)
+        # Return the last page's HTML
+        return html
 
     async def visit_product(self, product_url: str) -> str:
         """Visit a product page using global WebAgentEnv."""
