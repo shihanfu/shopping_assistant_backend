@@ -65,8 +65,12 @@ class Session:
     def parse_products_from_search_html(self, html: str) -> dict:
         soup = BeautifulSoup(html, "html.parser")
 
+        logger.info(f"HTML length: {len(html)}")
+        logger.info(f"HTML first 1000 characters: {html[:1000]}")
+
 
         grid = soup.select_one("div.products.wrapper.grid.products-grid")
+        logger.info(f"is grid found: {grid is not None}")
         if not grid:
             grid = soup.select_one("div.products.wrapper") or soup
 
@@ -76,6 +80,9 @@ class Session:
         else:
             candidates = ol.select("li.item.product.product-item")
 
+        logger.info(f"number of candidates: {len(candidates)}")
+        if candidates:
+            logger.info(f"the html of the first candidate: {str(candidates[0])[:500]}")
         products = []
         for li in candidates:
             a = li.select_one("a.product.photo, a.product-item-link, a[href]")
