@@ -62,41 +62,92 @@ class Session:
         print(f"Session initialized with model {self.model_id}")
 
     async def search(self, query: str) -> str:
-        """Search for products using global WebAgentEnv. Collects products from up to 3 pages."""
-        global global_env
-        
-        if not global_env:
-            return "Error: WebAgentEnv not initialized"
-        
+        """Search for products using Magento REST API. Returns first 50 products with core info only."""
+        import aiohttp
         import urllib.parse
-        encoded_query = urllib.parse.quote(query)
         
-        # Collect products from multiple pages
-        all_products = []
+        # API endpoint
+        base_url = "http://52.91.223.130:7770/rest/V1/products"
         
-        # Loop through up to 3 pages
-        for page_num in [1, 2, 3]:
-            # Build URL for each page
-            if page_num == 1:
-                search_url = f"http://52.91.223.130:7770/catalogsearch/result/index/?q={encoded_query}&product_list_limit=36"
-            else:
-                search_url = f"http://52.91.223.130:7770/catalogsearch/result/index/?p={page_num}&product_list_limit=36&q={encoded_query}"
-            
-            logger.info(f"Searching page {page_num} at {search_url}")
-            
-            # Visit this page
-            await global_env.goto_url(search_url)
-            logger.info(f"Page {page_num} loaded")
-
-            await global_env.page.wait_for_timeout(3000)  # 强制等3秒
-            # Get HTML - fail fast if key missing
-            observation = await global_env.observation()
-            html = observation["html"]
-
-            logger.info(f"Page {page_num} loaded, HTML length: {len(html)}")
+        # Encode query with wildcards for LIKE search
+        search_value = f"%{query}%"
         
-        # Return the last page's HTML
-        return html
+        # Build query parameters
+        params = {
+            "searchCriteria[filter_groups][0][filters][0][field]": "name",
+            "searchCriteria[filter_groups][0][filters][0][value]": search_value,
+            "searchCriteria[filter_groups][0][filters][0][condition_type]": "like",
+            "searchCriteria[pageSize]": "50",
+            "fields": "items[id,name,sku,price,media_gallery_entries,custom_attributes]"
+        }
+        
+        # Authorization header
+        headers = {
+            "Authorization": "Bearer eyJraWQiOiIxIiwiYWxnIjoiSFMyNTYifQ.eyJ1aWQiOjEsInV0eXBpZCI6MiwiaWF0IjoxNzYwNzM4MzQ1LCJleHAiOjE3NjA3NDE5NDV9._5NL8xJMF56gN_rdaoc7hxpSuofOihIcWHnLdoFaecY"
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(base_url, params=params, headers=headers) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        logger.info(f"Search API returned {len(data['items'])} products for query: {query}")
+                        
+                        # Extract only essential product information
+                        simplified_products = []
+                        for item in data["items"]:
+                            # Extract key attributes from custom_attributes
+                            attrs = {}
+                            for attr in item.get("custom_attributes", []):
+                                attr_code = attr["attribute_code"]
+                                # Only keep essential attributes
+                                if attr_code in ["description", "short_description", "url_key", "category_ids", "color", "size"]:
+                                    attrs[attr_code] = attr["value"]
+                            
+                            # Extract first image URL from media_gallery_entries
+                            image_url = None
+                            media_entries = item.get("media_gallery_entries", [])
+                            if media_entries and len(media_entries) > 0:
+                                first_image = media_entries[0]
+                                image_file = first_image.get("file", "")
+                                if image_file:
+                                    image_url = f"http://52.91.223.130:7770/media/catalog/product{image_file}"
+                            
+                            # Build simplified product object
+                            product = {
+                                "id": item["id"],
+                                "name": item["name"],
+                                "sku": item["sku"],
+                                "price": item.get("price", 0),
+                                "url": f"http://52.91.223.130:7770/{attrs.get('url_key', '')}.html" if "url_key" in attrs else None,
+                                "image_url": image_url
+                            }
+                            
+                            # Add optional attributes if present
+                            if "description" in attrs:
+                                product["description"] = attrs["description"][:500]  # Limit description length
+                            if "color" in attrs:
+                                product["color"] = attrs["color"]
+                            if "size" in attrs:
+                                product["size"] = attrs["size"]
+                                
+                            simplified_products.append(product)
+                        
+                        result = {
+                            "total_count": len(simplified_products),
+                            "products": simplified_products
+                        }
+                        
+                        result_json = json.dumps(result, indent=2)
+                        logger.info(f"Simplified search result: {len(result_json)} characters")
+                        return result_json
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"Search API error {response.status}: {error_text}")
+                        return f"Error: API returned status {response.status}"
+        except Exception as e:
+            logger.error(f"Error calling search API: {e}")
+            return f"Error calling search API: {str(e)}"
 
     async def visit_product(self, product_url: str) -> str:
         """Visit a product page using global WebAgentEnv."""
@@ -283,6 +334,29 @@ class Session:
                 try:
                     _llm_follow_start = time.perf_counter()
                     sanitized_messages = _normalize_tool_inputs(self.messages)
+                    
+                    # Log full message details for debugging
+                    logger.info(f"[DEBUG] Total messages count: {len(sanitized_messages)}")
+                    total_chars = 0
+                    for idx, msg in enumerate(sanitized_messages):
+                        msg_chars = len(json.dumps(msg, ensure_ascii=False))
+                        total_chars += msg_chars
+                        logger.info(f"[DEBUG] Message {idx} - role={msg['role']}, chars={msg_chars}, content_blocks={len(msg.get('content', []))}")
+                        for cidx, content in enumerate(msg.get('content', [])):
+                            if 'text' in content:
+                                text_len = len(content['text'])
+                                logger.info(f"[DEBUG]   Content[{cidx}] text length: {text_len}")
+                                logger.info(f"[DEBUG]   Content[{cidx}] text preview: {content['text'][:500]}")
+                            elif 'toolResult' in content:
+                                tool_result = content['toolResult']
+                                result_text = json.dumps(tool_result, ensure_ascii=False)
+                                logger.info(f"[DEBUG]   Content[{cidx}] toolResult length: {len(result_text)}")
+                                logger.info(f"[DEBUG]   Content[{cidx}] toolResult preview: {result_text[:500]}")
+                            elif 'toolUse' in content:
+                                tool_use = content['toolUse']
+                                logger.info(f"[DEBUG]   Content[{cidx}] toolUse: {tool_use['name']}")
+                    logger.info(f"[DEBUG] Total characters in all messages: {total_chars}")
+                    
                     response = self.bedrock_client.converse_stream(
                         modelId=self.model_id,
                         messages=sanitized_messages,
@@ -537,6 +611,29 @@ class Session:
                 try:
                     _llm_follow_start = time.perf_counter()
                     sanitized_messages = _normalize_tool_inputs(self.messages)
+                    
+                    # Log full message details for debugging
+                    logger.info(f"[DEBUG] Total messages count: {len(sanitized_messages)}")
+                    total_chars = 0
+                    for idx, msg in enumerate(sanitized_messages):
+                        msg_chars = len(json.dumps(msg, ensure_ascii=False))
+                        total_chars += msg_chars
+                        logger.info(f"[DEBUG] Message {idx} - role={msg['role']}, chars={msg_chars}, content_blocks={len(msg.get('content', []))}")
+                        for cidx, content in enumerate(msg.get('content', [])):
+                            if 'text' in content:
+                                text_len = len(content['text'])
+                                logger.info(f"[DEBUG]   Content[{cidx}] text length: {text_len}")
+                                logger.info(f"[DEBUG]   Content[{cidx}] text preview: {content['text'][:500]}")
+                            elif 'toolResult' in content:
+                                tool_result = content['toolResult']
+                                result_text = json.dumps(tool_result, ensure_ascii=False)
+                                logger.info(f"[DEBUG]   Content[{cidx}] toolResult length: {len(result_text)}")
+                                logger.info(f"[DEBUG]   Content[{cidx}] toolResult preview: {result_text[:500]}")
+                            elif 'toolUse' in content:
+                                tool_use = content['toolUse']
+                                logger.info(f"[DEBUG]   Content[{cidx}] toolUse: {tool_use['name']}")
+                    logger.info(f"[DEBUG] Total characters in all messages: {total_chars}")
+                    
                     logger.info(f"sanitized_messages: {sanitized_messages}")
                     logger.info(f"system_prompts: {self.system_prompts}")
                     response = self.bedrock_client.converse_stream(
