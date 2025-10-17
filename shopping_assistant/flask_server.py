@@ -66,23 +66,18 @@ class Session:
         soup = BeautifulSoup(html, "html.parser")
 
         logger.info(f"HTML length: {len(html)}")
-        logger.info(f"HTML first 1000 characters: {html[:1000]}")
 
-
-        grid = soup.select_one("div.products.wrapper.grid.products-grid")
-        logger.info(f"is grid found: {grid is not None}")
-        if not grid:
-            grid = soup.select_one("div.products.wrapper") or soup
-
-        ol = grid.select_one("ol.products.list.items.product-items")
-        if not ol:
-            candidates = grid.select("li.item.product.product-item")
-        else:
-            candidates = ol.select("li.item.product.product-item")
-
+        # ========== search product items directly ==========
+        candidates = soup.select("li.item.product.product-item")
         logger.info(f"number of candidates: {len(candidates)}")
-        if candidates:
-            logger.info(f"the html of the first candidate: {str(candidates[0])[:500]}")
+
+        if len(candidates) == 0:
+            # if still not found, print the html around product-item
+            if 'product-item' in html:
+                matches = re.findall(r'.{0,200}product-item.{0,200}', html)
+                logger.info(f"the html around product-item: {matches[:3]}")
+        # ========== end of search product items directly ==========
+
         products = []
         for li in candidates:
             a = li.select_one("a.product.photo, a.product-item-link, a[href]")
