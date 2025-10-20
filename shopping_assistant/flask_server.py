@@ -14,7 +14,7 @@ from botocore.exceptions import ClientError
 from shopping_assistant.prompts.system_prompt import SYSTEM_PROMPT
 # from tool_config import TOOL_CONFIG
 from shopping_assistant.tool_config import TOOL_CONFIG
-from shopping_assistant.config import get_model_id, get_temperature, get_top_k, get_server_port, get_server_host
+from shopping_assistant.config import get_model_id, get_temperature, get_top_k, get_server_port, get_server_host, MAGENTO_API_CONFIG
 
 from rl_web_agent.env import WebAgentEnv
 import hydra
@@ -61,13 +61,56 @@ class Session:
         self.current_url = None
         print(f"Session initialized with model {self.model_id}")
 
+    async def get_magento_admin_token(self) -> str:
+        """Get a fresh admin token from Magento API."""
+        import aiohttp
+        
+        token_url = f"{MAGENTO_API_CONFIG['base_url']}{MAGENTO_API_CONFIG['token_endpoint']}"
+        payload = {
+            "username": MAGENTO_API_CONFIG["admin_username"],
+            "password": MAGENTO_API_CONFIG["admin_password"]
+        }
+        
+        logger.info(f"[AUTH] Requesting admin token from {token_url}")
+        logger.info(f"[AUTH] Using username: {MAGENTO_API_CONFIG['admin_username']}")
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(token_url, json=payload, headers={"Content-Type": "application/json"}) as response:
+                    logger.info(f"[AUTH] Token request status: {response.status}")
+                    logger.info(f"[AUTH] Token response headers: {dict(response.headers)}")
+                    
+                    if response.status == 200:
+                        token = await response.json()
+                        logger.info(f"[AUTH] Successfully obtained admin token (length: {len(str(token))})")
+                        logger.info(f"[AUTH] Token preview: {str(token)[:50]}...")
+                        logger.info(f"[AUTH] Token type: {type(token)}")
+                        return str(token)  # Ensure it's a string
+                    else:
+                        error_text = await response.text()
+                        logger.error(f"[AUTH] Failed to get token. Status: {response.status}")
+                        logger.error(f"[AUTH] Error response: {error_text}")
+                        raise Exception(f"Failed to get admin token: {response.status} - {error_text}")
+        except Exception as e:
+            logger.error(f"[AUTH] Exception while getting token: {e}")
+            import traceback
+            logger.error(f"[AUTH] Traceback: {traceback.format_exc()}")
+            raise
+
     async def search(self, query: str) -> str:
         """Search for products using Magento REST API. Returns first 50 products with core info only."""
         import aiohttp
         import urllib.parse
         
-        # API endpoint
-        base_url = "http://52.91.223.130:7770/rest/V1/products"
+        # Get fresh admin token
+        try:
+            token = await self.get_magento_admin_token()
+        except Exception as e:
+            logger.error(f"[SEARCH] Failed to get admin token: {e}")
+            return f"Error: Failed to authenticate with Magento API - {str(e)}"
+        
+        # API endpoint from config
+        base_url = f"{MAGENTO_API_CONFIG['base_url']}{MAGENTO_API_CONFIG['products_endpoint']}"
         
         # Encode query with wildcards for LIKE search
         search_value = f"%{query}%"
@@ -78,20 +121,38 @@ class Session:
             "searchCriteria[filter_groups][0][filters][0][value]": search_value,
             "searchCriteria[filter_groups][0][filters][0][condition_type]": "like",
             "searchCriteria[pageSize]": "50",
+            "searchCriteria[currentPage]": "1",
             "fields": "items[id,name,sku,price,media_gallery_entries,custom_attributes]"
         }
         
-        # Authorization header
+        # Authorization header with fresh token
         headers = {
-            "Authorization": "Bearer eyJraWQiOiIxIiwiYWxnIjoiSFMyNTYifQ.eyJ1aWQiOjEsInV0eXBpZCI6MiwiaWF0IjoxNzYwNzM4MzQ1LCJleHAiOjE3NjA3NDE5NDV9._5NL8xJMF56gN_rdaoc7hxpSuofOihIcWHnLdoFaecY"
+            "Authorization": f"Bearer {token}"
         }
+        
+        logger.info(f"[SEARCH] Starting search for query: '{query}'")
+        logger.info(f"[SEARCH] API endpoint: {base_url}")
+        logger.info(f"[SEARCH] Search value: {search_value}")
+        logger.info(f"[SEARCH] Request params: {params}")
+        logger.info(f"[SEARCH] Authorization header (first 50 chars): {headers['Authorization'][:50]}...")
         
         try:
             async with aiohttp.ClientSession() as session:
+                logger.info(f"[SEARCH] Sending GET request to {base_url}")
                 async with session.get(base_url, params=params, headers=headers) as response:
+                    logger.info(f"[SEARCH] Actual request URL: {response.url}")
+                    logger.info(f"[SEARCH] Response status: {response.status}")
+                    logger.info(f"[SEARCH] Response headers: {dict(response.headers)}")
+                    
                     if response.status == 200:
                         data = await response.json()
-                        logger.info(f"Search API returned {len(data['items'])} products for query: {query}")
+                        total_items = len(data["items"])
+                        total_count_available = data.get("total_count", total_items)
+                        logger.info(f"[SEARCH] API returned {total_items} products out of {total_count_available} total matches for query: '{query}'")
+                        
+                        # Warn if we're not getting the expected page size
+                        if total_count_available > total_items and total_items < 50:
+                            logger.warning(f"[SEARCH] Expected up to 50 products but only received {total_items}. There are {total_count_available - total_items} more products available.")
                         
                         # Extract only essential product information
                         simplified_products = []
@@ -111,7 +172,7 @@ class Session:
                                 first_image = media_entries[0]
                                 image_file = first_image.get("file", "")
                                 if image_file:
-                                    image_url = f"http://52.91.223.130:7770/media/catalog/product{image_file}"
+                                    image_url = f"{MAGENTO_API_CONFIG['base_url']}/media/catalog/product{image_file}"
                             
                             # Build simplified product object
                             product = {
@@ -119,7 +180,7 @@ class Session:
                                 "name": item["name"],
                                 "sku": item["sku"],
                                 "price": item.get("price", 0),
-                                "url": f"http://52.91.223.130:7770/{attrs.get('url_key', '')}.html" if "url_key" in attrs else None,
+                                "url": f"{MAGENTO_API_CONFIG['base_url']}/{attrs.get('url_key', '')}.html" if "url_key" in attrs else None,
                                 "image_url": image_url
                             }
                             
@@ -133,20 +194,49 @@ class Session:
                                 
                             simplified_products.append(product)
                         
+                        # Log detailed search results
+                        logger.info(f"[SEARCH] Processed {len(simplified_products)} products successfully")
+                        product_names = [p["name"] for p in simplified_products[:5]]  # Log first 5 product names
+                        if len(simplified_products) > 5:
+                            logger.info(f"[SEARCH] Sample products: {', '.join(product_names)} ... and {len(simplified_products) - 5} more")
+                        else:
+                            logger.info(f"[SEARCH] Products: {', '.join(product_names)}")
+                        
                         result = {
                             "total_count": len(simplified_products),
+                            "total_available": total_count_available,
                             "products": simplified_products
                         }
                         
                         result_json = json.dumps(result, indent=2)
-                        logger.info(f"Simplified search result: {len(result_json)} characters")
+                        logger.info(f"[SEARCH] Returning {len(simplified_products)} products (out of {total_count_available} available) ({len(result_json)} characters) for query: '{query}'")
                         return result_json
                     else:
                         error_text = await response.text()
-                        logger.error(f"Search API error {response.status}: {error_text}")
+                        logger.error(f"[SEARCH] API error - Status: {response.status}")
+                        logger.error(f"[SEARCH] Response headers: {dict(response.headers)}")
+                        logger.error(f"[SEARCH] Response body: {error_text}")
+                        logger.error(f"[SEARCH] Request URL: {response.url}")
+                        
+                        # Decode JWT to check expiration
+                        try:
+                            import base64
+                            token = headers["Authorization"].replace("Bearer ", "")
+                            payload_part = token.split('.')[1]
+                            # Add padding if needed
+                            padding = len(payload_part) % 4
+                            if padding:
+                                payload_part += '=' * (4 - padding)
+                            decoded = base64.b64decode(payload_part)
+                            logger.error(f"[SEARCH] JWT payload: {decoded}")
+                        except Exception as jwt_error:
+                            logger.error(f"[SEARCH] Failed to decode JWT: {jwt_error}")
+                        
                         return f"Error: API returned status {response.status}"
         except Exception as e:
-            logger.error(f"Error calling search API: {e}")
+            logger.error(f"[SEARCH] Exception calling search API: {e}")
+            import traceback
+            logger.error(f"[SEARCH] Traceback: {traceback.format_exc()}")
             return f"Error calling search API: {str(e)}"
 
     async def visit_product(self, product_url: str) -> str:
@@ -283,30 +373,38 @@ class Session:
                     # Handle async tool calls
                     try:
                         _tool_start = time.perf_counter()
+                        logger.info(f"[TOOL_EXEC] Starting execution of tool: {tool_name}")
+                        logger.info(f"[TOOL_EXEC] Tool input: {tool_input}")
+                        
                         if tool_name == 'search':
                             result_text = await self.search(tool_input['query'])
+                            logger.info(f"[TOOL_EXEC] search returned {len(result_text)} characters")
+                            logger.info(f"[TOOL_EXEC] search result preview: {result_text[:500]}")
                             tool_result = {
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": result_text}]
                             }
                         elif tool_name == 'visit_product':
-                            logger.info(f"[TOOL] visit_product input: {tool_input}")
+                            logger.info(f"[TOOL_EXEC] visit_product input: {tool_input}")
                             result_text = await self.visit_product(tool_input['product_url'])
-                            logger.info(f"[TOOL] visit_product html_len={len(result_text or '')}")
+                            logger.info(f"[TOOL_EXEC] visit_product returned {len(result_text or '')} characters")
                             tool_result = {
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": result_text}]
                             }
                         else:
+                            logger.error(f"[TOOL_EXEC] Unknown tool requested: {tool_name}")
                             tool_result = {
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": f"Unknown tool: {tool_name}"}],
                                 "status": "error"
                             }
+                        
+                        logger.info(f"[TOOL_EXEC] Tool result structure: {json.dumps(tool_result, ensure_ascii=False)[:500]}")
                     except Exception as e:
                         import traceback
-                        logger.error(f"Error executing tool {tool_name}: {traceback.format_exc()}")
-                        logger.error(f"Error executing tool {tool_name}: {e}")
+                        logger.error(f"[TOOL_EXEC] Exception executing tool {tool_name}: {e}")
+                        logger.error(f"[TOOL_EXEC] Full traceback: {traceback.format_exc()}")
                         tool_result = {
                             "toolUseId": tool_use_id,
                             "content": [{"text": f"Error executing tool {tool_name}: {str(e)}"}],
@@ -320,6 +418,7 @@ class Session:
                             pass
 
                     tool_result_contents.append({"toolResult": tool_result})
+                    logger.info(f"[TOOL_EXEC] Added tool result to contents, total results: {len(tool_result_contents)}")
                     # Notify client tool is complete
                     yield {"type": "tool_complete", "tool": tool_name}
 
@@ -563,29 +662,38 @@ class Session:
                     # Handle async tool calls
                     try:
                         _tool_start = time.perf_counter()
+                        logger.info(f"[TOOL_EXEC] Starting execution of tool: {tool_name}")
+                        logger.info(f"[TOOL_EXEC] Tool input: {tool_input}")
+                        
                         if tool_name == 'search':
                             result_text = await self.search(tool_input['query'])
+                            logger.info(f"[TOOL_EXEC] search returned {len(result_text)} characters")
+                            logger.info(f"[TOOL_EXEC] search result preview: {result_text[:500]}")
                             tool_result = {
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": result_text}]
                             }
                         elif tool_name == 'visit_product':
-                            logger.info(f"[TOOL] visit_product input: {tool_input}")
+                            logger.info(f"[TOOL_EXEC] visit_product input: {tool_input}")
                             result_text = await self.visit_product(tool_input['product_url'])
-                            logger.info(f"[TOOL] visit_product html_len={len(result_text or '')}")
+                            logger.info(f"[TOOL_EXEC] visit_product returned {len(result_text or '')} characters")
                             tool_result = {
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": result_text}]
                             }
-                        
                         else:
+                            logger.error(f"[TOOL_EXEC] Unknown tool requested: {tool_name}")
                             tool_result = {
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": f"Unknown tool: {tool_name}"}],
                                 "status": "error"
                             }
+                        
+                        logger.info(f"[TOOL_EXEC] Tool result structure: {json.dumps(tool_result, ensure_ascii=False)[:500]}")
                     except Exception as e:
-                        logger.error(f"Error executing tool {tool_name}: {e}")
+                        import traceback
+                        logger.error(f"[TOOL_EXEC] Exception executing tool {tool_name}: {e}")
+                        logger.error(f"[TOOL_EXEC] Full traceback: {traceback.format_exc()}")
                         tool_result = {
                             "toolUseId": tool_use_id,
                             "content": [{"text": f"Error executing tool {tool_name}: {str(e)}"}],
@@ -599,6 +707,7 @@ class Session:
                             pass
 
                     tool_result_contents.append({"toolResult": tool_result})
+                    logger.info(f"[TOOL_EXEC] Added tool result to contents, total results: {len(tool_result_contents)}")
 
             if tool_result_contents:
                 # Add a single user message containing ALL toolResult blocks
