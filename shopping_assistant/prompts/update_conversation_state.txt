@@ -131,8 +131,9 @@ Examples:
 
 ##  Inferred Product Attributes
 
-This section describes how to **infer and organize product-related information** that the user *explicitly mentions* or *implicitly implies* through conversation.
-The goal is to map user needs into a **Dimension → Attribute** structure, even when the user does not mention all dimensions or attributes directly.
+This section explains how to **extract and structure product-related information**.
+The goal is to first understand the product’s inherent characteristics, then map the user’s needs into a **Dimension → Attribute** framework.
+Include both information that the user **explicitly mentions** and that which is **implicitly implied** through the conversation, even if not all dimensions or attributes are directly stated.
 
 ### Core Concept
 
@@ -152,44 +153,61 @@ A product can be described from **two hierarchical perspectives**:
 
 ### Inference Logic
 
-- Even if the user doesn't mention attributes directly, infer likely **dimensions** and **attributes** based on the **intended product type**.
-  - Example: if user says "I want a monitor," infer dimensions like *Visual Representation* and *Performance*, and potential attributes like *resolution*, *refresh_rate*, etc.
-- Mark attributes as either **explicit** (user stated) or **implicit** (LLM-inferred).
-- Use concise, interpretable text for values (e.g., "at least 1440p", "high", "yes", "lightweight").
+- Based on the `product_category`, identify and output **4 to 5 key dimensions** that are most relevant to that product type
+- For each dimension, include relevant **attributes** based on:
+  - What the user has **explicitly mentioned** (mark as `is_explicit: true`)
+  - What can be **reasonably inferred** from the conversation context, usage scenario, or product category (mark as `is_explicit: false`)
+- Example: If the product category is "monitor," output dimensions like *Visual Representation*, *Performance*, *Connectivity*, and *Physical Properties* with their relevant attributes
+- Use concise, interpretable text for values (e.g., "at least 1440p", "high", "yes", "lightweight")
+- If a dimension has no relevant attributes to include (neither explicit nor implicit), you may omit it and choose a different dimension
 
 ### Output Schema
 
-Each dimension contains a list of attribute objects:
+The `inferred_product_attributes` field should contain an **array of 4-5 dimension objects**, where each dimension contains a list of attribute objects:
 
 ```json
-{
-  "dimension_name": "Visual Representation",
-  "attributes": [
-    {"name": "resolution", "value": "1440p or higher", "is_explicit": true},
-    {"name": "refresh_rate", "value": "high (120Hz+)", "is_explicit": false}
-  ]
-}
+[
+  {
+    "dimension_name": "Visual Representation",
+    "attributes": [
+      {"name": "resolution", "value": "at least 1440p", "is_explicit": true},
+      {"name": "refresh_rate", "value": "high (120Hz+)", "is_explicit": false}
+    ]
+  },
+  {
+    "dimension_name": "Performance",
+    "attributes": [
+      {"name": "response_time", "value": "low (1ms preferred)", "is_explicit": false}
+    ]
+  }
+]
 ```
 
 ### Dimension Examples by Category
 
-**Jacket:**
+Use these as guidelines for selecting 4-5 dimensions per product type:
+
+**Jacket (select 4-5 of these):**
 - **Weather Protection**: waterproof, windproof, insulation, breathability
 - **Physical Properties**: weight, size, fit, packability
 - **Design**: color, style, pockets, hood
+- **Durability**: material_quality, tear_resistance, reinforced_areas
+- **Comfort**: mobility, lining_softness, ventilation
 
-**Monitor:**
+**Monitor (select 4-5 of these):**
 - **Visual Representation**: resolution, refresh_rate, color_accuracy, panel_type, color_gamut
 - **Physical Properties**: size, weight, bezel, stand_adjustability
 - **Connectivity**: hdmi_ports, displayport, usb_c, usb_hub
 - **Performance**: response_time, input_lag, brightness, contrast_ratio
+- **User Experience**: eye_care_features, osd_menu_quality, ease_of_setup
 
-**Laptop:**
+**Laptop (select 4-5 of these):**
 - **Computing Power**: cpu, ram, gpu
 - **Storage**: ssd_size, ssd_type, additional_storage
 - **Display**: resolution, size, panel_type, refresh_rate, brightness
 - **Physical Properties**: weight, thickness, build_quality, battery_life
 - **Connectivity**: ports, wifi, bluetooth
+- **User Experience**: keyboard_quality, trackpad_quality, thermal_management
 
 ### General Fallback Dimensions
 
@@ -237,12 +255,14 @@ Return ONLY a valid JSON object (no additional text before or after):
     "explicit_user_preferences": ["attribute: value", ...],
     "implicit_user_preferences": ["attribute: value (reason)", ...]
   },
-  "inferred_product_attributes": {
-    "dimension_name": "string",
-    "attributes": [
-      {"name": "string", "value": "string", "is_explicit": true}
-    ]
-  }
+  "inferred_product_attributes": [
+    {
+      "dimension_name": "string",
+      "attributes": [
+        {"name": "string", "value": "string", "is_explicit": true}
+      ]
+    }
+  ]
 }
 ```
 
@@ -250,7 +270,8 @@ Return ONLY a valid JSON object (no additional text before or after):
 - Set fields to `null` or empty arrays `[]` if no relevant information exists
 - Maintain consistency across conversation turns
 - Update fields when new information contradicts previous information
-- Choose ONE most relevant dimension for `inferred_product_attributes` per update
+- **Always output 4-5 dimensions** in `inferred_product_attributes` based on the product category and conversation context
+- Each dimension should include relevant attributes (both explicit and implicit when applicable)
 
 
 # Examples
@@ -276,21 +297,63 @@ Return ONLY a valid JSON object (no additional text before or after):
       "refresh_rate: high refresh rate for gaming"
     ]
   },
-  "inferred_product_attributes": {
-    "dimension_name": "Visual Representation",
-    "attributes": [
-      {
-        "name": "resolution",
-        "value": "at least 1440p",
-        "is_explicit": true
-      },
-      {
-        "name": "refresh_rate",
-        "value": "high (120Hz+)",
-        "is_explicit": false
-      }
-    ]
-  }
+  "inferred_product_attributes": [
+    {
+      "dimension_name": "Visual Representation",
+      "attributes": [
+        {
+          "name": "resolution",
+          "value": "at least 1440p",
+          "is_explicit": true
+        },
+        {
+          "name": "refresh_rate",
+          "value": "high (120Hz+)",
+          "is_explicit": false
+        },
+        {
+          "name": "color_accuracy",
+          "value": "good (for gaming visuals)",
+          "is_explicit": false
+        }
+      ]
+    },
+    {
+      "dimension_name": "Performance",
+      "attributes": [
+        {
+          "name": "response_time",
+          "value": "low (1-5ms)",
+          "is_explicit": false
+        },
+        {
+          "name": "input_lag",
+          "value": "minimal",
+          "is_explicit": false
+        }
+      ]
+    },
+    {
+      "dimension_name": "Physical Properties",
+      "attributes": [
+        {
+          "name": "size",
+          "value": "27 inches (typical for 1440p)",
+          "is_explicit": false
+        }
+      ]
+    },
+    {
+      "dimension_name": "Connectivity",
+      "attributes": [
+        {
+          "name": "hdmi_ports",
+          "value": "multiple ports preferred",
+          "is_explicit": false
+        }
+      ]
+    }
+  ]
 }
 ```
 
@@ -318,20 +381,72 @@ Return ONLY a valid JSON object (no additional text before or after):
       "input_lag: minimal input lag for FPS games"
     ]
   },
-  "inferred_product_attributes": {
-    "dimension_name": "Performance",
-    "attributes": [
-      {
-        "name": "response_time",
-        "value": "low (1ms preferred)",
-        "is_explicit": true
-      },
-      {
-        "name": "input_lag",
-        "value": "minimal",
-        "is_explicit": false
-      }
-    ]
-  }
+  "inferred_product_attributes": [
+    {
+      "dimension_name": "Visual Representation",
+      "attributes": [
+        {
+          "name": "resolution",
+          "value": "at least 1440p",
+          "is_explicit": true
+        },
+        {
+          "name": "refresh_rate",
+          "value": "high (144Hz+ for FPS)",
+          "is_explicit": false
+        },
+        {
+          "name": "color_accuracy",
+          "value": "good (for gaming visuals)",
+          "is_explicit": false
+        }
+      ]
+    },
+    {
+      "dimension_name": "Performance",
+      "attributes": [
+        {
+          "name": "response_time",
+          "value": "low (1ms preferred for FPS)",
+          "is_explicit": true
+        },
+        {
+          "name": "input_lag",
+          "value": "minimal for competitive gaming",
+          "is_explicit": false
+        }
+      ]
+    },
+    {
+      "dimension_name": "Physical Properties",
+      "attributes": [
+        {
+          "name": "size",
+          "value": "27 inches (typical for 1440p)",
+          "is_explicit": false
+        },
+        {
+          "name": "stand_adjustability",
+          "value": "adjustable for ergonomic gaming",
+          "is_explicit": false
+        }
+      ]
+    },
+    {
+      "dimension_name": "Connectivity",
+      "attributes": [
+        {
+          "name": "hdmi_ports",
+          "value": "multiple ports for console/PC",
+          "is_explicit": false
+        },
+        {
+          "name": "displayport",
+          "value": "required for high refresh rate",
+          "is_explicit": false
+        }
+      ]
+    }
+  ]
 }
 ```

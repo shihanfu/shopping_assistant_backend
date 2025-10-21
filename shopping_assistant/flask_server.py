@@ -71,16 +71,7 @@ class Session:
                 "explicit_user_preferences": [],
                 "implicit_user_preferences": [],
             },
-            "inferred_product_attributes": {
-                "dimension_name": "dimension name",
-                "attributes": [
-                    {
-                        "name": "attribute name",
-                        "value": "attribute value",
-                        "is_explicit": False  # True if explicitly stated, False if inferred
-                    }
-                ]
-            }
+            "inferred_product_attributes": []  # Array of dimension objects per prompt spec
         }
         
         # Load conversation state update prompt
@@ -387,17 +378,19 @@ class Session:
                 implicit_lines.append(f"  - {pref}")
             implicit_text = '\n'.join(implicit_lines) if implicit_lines else '  (none)'
             
-            # Format product attributes
+            # Format product attributes (array of dimension objects)
             prod_attrs = self.conversation_state["inferred_product_attributes"]
             attributes_text = ""
-            if prod_attrs and prod_attrs.get("attributes"):
-                dim_name = prod_attrs.get("dimension_name", "Product Attributes")
-                attr_lines = [f"  {dim_name}:"]
-                for attr in prod_attrs["attributes"]:
-                    attr_name = attr["name"]
-                    attr_value = attr["value"]
-                    is_explicit = '✓' if attr["is_explicit"] else '~'
-                    attr_lines.append(f"    [{is_explicit}] {attr_name}: {attr_value}")
+            if prod_attrs and isinstance(prod_attrs, list):
+                attr_lines = []
+                for dimension in prod_attrs:
+                    dim_name = dimension["dimension_name"]
+                    attr_lines.append(f"  {dim_name}:")
+                    for attr in dimension["attributes"]:
+                        attr_name = attr["name"]
+                        attr_value = attr["value"]
+                        is_explicit = '✓' if attr["is_explicit"] else '~'
+                        attr_lines.append(f"    [{is_explicit}] {attr_name}: {attr_value}")
                 attributes_text = '\n'.join(attr_lines)
             else:
                 attributes_text = "  (none)"
@@ -416,10 +409,10 @@ Implicit Preferences (inferred):
 {implicit_text}
 
 [Inferred Product Attributes]
-Dimension Name: {prod_attrs.get("dimension_name", "Product Attributes")}
-Attributes:
 {attributes_text}
 </conversation_state>"""
+            
+            logger.info(f"Conversation state context:\n{state_context}")
             
             self.messages.append({
                 "role": "user",
