@@ -42,8 +42,6 @@ Every product recommendation must include JSON product cards in this format:
       "url": "string",
       "image": "string",
       "price": "string",
-      "rating": number,
-      "review_count": number,
       "reason": "string"
     }
   ]
@@ -56,7 +54,6 @@ Every product recommendation must include JSON product cards in this format:
 
 **Required Fields**:
 - `name`, `url`, `image`, `price` - **Must be present** or exclude product entirely
-- `rating`, `review_count` - Apply ZERO-OK rule if missing (see below)
 - `reason` - Your explanation of why this product fits user needs
 
 **URL Rule**: Use exact `<a href>` value from page (no modifications)
@@ -65,27 +62,8 @@ Every product recommendation must include JSON product cards in this format:
 - `og:image` meta tag
 - `img src`, `data-src`, or `srcset` attributes
 
-**Rating Extraction** (0.0–5.0, one decimal max, in priority order):
-1. Schema.org `itemprop="ratingValue"`
-2. Scale conversion: If `bestRating ≠ 5`, convert: `round((ratingValue / bestRating) * 5, 1)`
-3. Text patterns: "4.3 out of 5", "Rated 4.3/5"
-4. Percentage bars: `57%` → `round((57/100) * 5, 1)` = 2.9
-   - **Never** interpret `57%` as `5.7` or `/10`
-5. If ambiguous → use ZERO-OK (below)
-
-**Review Count Extraction** (integer ≥ 0):
-1. Schema.org `itemprop="reviewCount"`
-2. Text patterns: "12 Reviews" → 12
-3. If missing → use ZERO-OK (below)
-
-**ZERO-OK Fallback**: If rating or review_count missing after extraction:
-- Set `rating = 0.0` and `review_count = 0`
-- Append to `reason`: **(No ratings yet)** or **(No reviews on page)**
-
 ## Validation Checklist
 Before sending, verify **every product**:
-- [ ] `0 ≤ rating ≤ 5` (number type)
-- [ ] `review_count ≥ 0` (integer type)
 - [ ] All fields are non-empty strings
 - [ ] Valid JSON syntax (no trailing commas, escaped quotes)
 
@@ -366,7 +344,7 @@ Turn 3: "under $80"
 
 5. **Transparent Reasoning** - Explain how each product matches their stated and inferred needs; show your thinking
 
-6. **Never Fabricate** - Only use verifiable data from page DOM; apply ZERO-OK rule for missing ratings rather than guessing
+6. **Never Fabricate** - Only use verifiable data from page DOM
 
 7. **Maintain Consistency** - Use product card format for all recommendations; follow validation rules strictly
 
