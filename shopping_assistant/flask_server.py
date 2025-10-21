@@ -59,6 +59,31 @@ class Session:
         self.tool_config = TOOL_CONFIG
         self._lock = threading.Lock()
         self.current_url = None
+        
+        # Initialize conversation state
+        self.conversation_state = {
+            "product_category": None,
+            "usage_scenario": None,
+            "explicit_preferences": {
+                "budget": None,
+                "brands": [],
+                "other_explicit": {}
+            },
+            "implicit_preferences": {
+                "inferred_needs": [],
+                "usage_context": None,
+                "other_implicit": {}
+            },
+            "product_dimensions": [],
+            "recent_products": []
+        }
+        
+        # Load conversation state update prompt
+        import os
+        prompt_path = os.path.join(os.path.dirname(__file__), "prompts", "update_conversation_state.txt")
+        with open(prompt_path, "r") as f:
+            self.state_update_prompt = f.read()
+        
         print(f"Session initialized with model {self.model_id}")
 
     async def get_magento_admin_token(self) -> str:
@@ -77,24 +102,24 @@ class Session:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(token_url, json=payload, headers={"Content-Type": "application/json"}) as response:
-                    logger.info(f"[AUTH] Token request status: {response.status}")
-                    logger.info(f"[AUTH] Token response headers: {dict(response.headers)}")
+                    #logger.info(f"[AUTH] Token request status: {response.status}")
+                    #logger.info(f"[AUTH] Token response headers: {dict(response.headers)}")
                     
                     if response.status == 200:
                         token = await response.json()
-                        logger.info(f"[AUTH] Successfully obtained admin token (length: {len(str(token))})")
-                        logger.info(f"[AUTH] Token preview: {str(token)[:50]}...")
-                        logger.info(f"[AUTH] Token type: {type(token)}")
-                        return str(token)  # Ensure it's a string
+                        # Remove quotes if present - Magento returns token as string
+                        token_str = str(token).strip('"').strip("'")
+                        logger.info(f"[AUTH] Successfully obtained admin token (length: {len(token_str)})")
+                        return token_str
                     else:
                         error_text = await response.text()
-                        logger.error(f"[AUTH] Failed to get token. Status: {response.status}")
+                        #logger.error(f"[AUTH] Failed to get token. Status: {response.status}")
                         logger.error(f"[AUTH] Error response: {error_text}")
                         raise Exception(f"Failed to get admin token: {response.status} - {error_text}")
         except Exception as e:
-            logger.error(f"[AUTH] Exception while getting token: {e}")
+            #logger.error(f"[AUTH] Exception while getting token: {e}")
             import traceback
-            logger.error(f"[AUTH] Traceback: {traceback.format_exc()}")
+            #logger.error(f"[AUTH] Traceback: {traceback.format_exc()}")
             raise
 
     async def search(self, query: str) -> str:
@@ -112,18 +137,23 @@ class Session:
         # API endpoint from config
         base_url = f"{MAGENTO_API_CONFIG['base_url']}{MAGENTO_API_CONFIG['products_endpoint']}"
         
-        # Encode query with wildcards for LIKE search
-        search_value = f"%{query}%"
-        
         # Build query parameters
-        params = {
-            "searchCriteria[filter_groups][0][filters][0][field]": "name",
-            "searchCriteria[filter_groups][0][filters][0][value]": search_value,
-            "searchCriteria[filter_groups][0][filters][0][condition_type]": "like",
-            "searchCriteria[pageSize]": "50",
-            "searchCriteria[currentPage]": "1",
-            "fields": "items[id,name,sku,price,media_gallery_entries,custom_attributes]"
-        }
+        # Strategy: Use OR logic - each word gets its own filter_group
+        # Different filter_groups = OR logic (any word can match)
+        query_words = query.strip().split()
+        
+        params = {}
+        
+        # Add filters for each word - each in separate filter_group for OR logic
+        for idx, word in enumerate(query_words):
+            search_value = f"%{word}%"
+            params[f"searchCriteria[filter_groups][{idx}][filters][0][field]"] = "name"
+            params[f"searchCriteria[filter_groups][{idx}][filters][0][value]"] = search_value
+            params[f"searchCriteria[filter_groups][{idx}][filters][0][condition_type]"] = "like"
+        
+        # Pagination
+        params["searchCriteria[pageSize]"] = "50"
+        params["searchCriteria[currentPage]"] = "1"
         
         # Authorization header with fresh token
         headers = {
@@ -131,28 +161,25 @@ class Session:
         }
         
         logger.info(f"[SEARCH] Starting search for query: '{query}'")
-        logger.info(f"[SEARCH] API endpoint: {base_url}")
-        logger.info(f"[SEARCH] Search value: {search_value}")
+        logger.info(f"[SEARCH] Query words: {query_words}")
         logger.info(f"[SEARCH] Request params: {params}")
-        logger.info(f"[SEARCH] Authorization header (first 50 chars): {headers['Authorization'][:50]}...")
         
         try:
             async with aiohttp.ClientSession() as session:
-                logger.info(f"[SEARCH] Sending GET request to {base_url}")
                 async with session.get(base_url, params=params, headers=headers) as response:
-                    logger.info(f"[SEARCH] Actual request URL: {response.url}")
+                    logger.info(f"[SEARCH] Request URL: {response.url}")
                     logger.info(f"[SEARCH] Response status: {response.status}")
-                    logger.info(f"[SEARCH] Response headers: {dict(response.headers)}")
+
                     
                     if response.status == 200:
                         data = await response.json()
                         total_items = len(data["items"])
                         total_count_available = data.get("total_count", total_items)
-                        logger.info(f"[SEARCH] API returned {total_items} products out of {total_count_available} total matches for query: '{query}'")
+                        #logger.info(f"[SEARCH] API returned {total_items} products out of {total_count_available} total matches for query: '{query}'")
                         
                         # Warn if we're not getting the expected page size
-                        if total_count_available > total_items and total_items < 50:
-                            logger.warning(f"[SEARCH] Expected up to 50 products but only received {total_items}. There are {total_count_available - total_items} more products available.")
+                        #if total_count_available > total_items and total_items < 50:
+                        #    logger.warning(f"[SEARCH] Expected up to 50 products but only received {total_items}. There are {total_count_available - total_items} more products available.")
                         
                         # Extract only essential product information
                         simplified_products = []
@@ -194,13 +221,13 @@ class Session:
                                 
                             simplified_products.append(product)
                         
-                        # Log detailed search results
-                        logger.info(f"[SEARCH] Processed {len(simplified_products)} products successfully")
-                        product_names = [p["name"] for p in simplified_products[:5]]  # Log first 5 product names
-                        if len(simplified_products) > 5:
-                            logger.info(f"[SEARCH] Sample products: {', '.join(product_names)} ... and {len(simplified_products) - 5} more")
-                        else:
-                            logger.info(f"[SEARCH] Products: {', '.join(product_names)}")
+                        # Log search results summary
+                        #logger.info(f"[SEARCH] Processed {len(simplified_products)} products successfully")
+                        #product_names = [p["name"] for p in simplified_products[:5]]  # Log first 5 product names
+                        #if len(simplified_products) > 5:
+                        #    logger.info(f"[SEARCH] Sample products: {', '.join(product_names)} ... and {len(simplified_products) - 5} more")
+                        #else:
+                        #    logger.info(f"[SEARCH] Products: {', '.join(product_names)}")
                         
                         result = {
                             "total_count": len(simplified_products),
@@ -209,30 +236,20 @@ class Session:
                         }
                         
                         result_json = json.dumps(result, indent=2)
-                        logger.info(f"[SEARCH] Returning {len(simplified_products)} products (out of {total_count_available} available) ({len(result_json)} characters) for query: '{query}'")
+                        logger.info(f"[SEARCH] Found {len(simplified_products)} products for query: '{query}'")
                         return result_json
                     else:
                         error_text = await response.text()
                         logger.error(f"[SEARCH] API error - Status: {response.status}")
-                        logger.error(f"[SEARCH] Response headers: {dict(response.headers)}")
-                        logger.error(f"[SEARCH] Response body: {error_text}")
-                        logger.error(f"[SEARCH] Request URL: {response.url}")
+                        logger.error(f"[SEARCH] Error response: {error_text[:500]}")
                         
-                        # Decode JWT to check expiration
-                        try:
-                            import base64
-                            token = headers["Authorization"].replace("Bearer ", "")
-                            payload_part = token.split('.')[1]
-                            # Add padding if needed
-                            padding = len(payload_part) % 4
-                            if padding:
-                                payload_part += '=' * (4 - padding)
-                            decoded = base64.b64decode(payload_part)
-                            logger.error(f"[SEARCH] JWT payload: {decoded}")
-                        except Exception as jwt_error:
-                            logger.error(f"[SEARCH] Failed to decode JWT: {jwt_error}")
+                        # Check if it's an authorization error
+                        if response.status == 401 or "isn't authorized" in error_text:
+                            logger.error(f"[SEARCH] Authorization failed - token may be invalid or expired")
+                            logger.error(f"[SEARCH] This likely means the admin user doesn't have permission to access product catalog")
+                            return f"Error: Authorization failed - admin token doesn't have permission to access products. Status: {response.status}"
                         
-                        return f"Error: API returned status {response.status}"
+                        return f"Error: API returned status {response.status} - {error_text[:200]}"
         except Exception as e:
             logger.error(f"[SEARCH] Exception calling search API: {e}")
             import traceback
@@ -255,6 +272,61 @@ class Session:
         except Exception as e:
             logger.error(f"Error in visit_product function: {e}")
             return f"Error visiting product: {str(e)}"
+
+    async def update_conversation_state(self):
+        """Update conversation state by analyzing recent conversation history."""
+        try:
+            # Get last 10 messages for context (or all if less than 10)
+            recent_messages = self.messages[-10:] if len(self.messages) > 10 else self.messages
+            
+            # Format conversation history for the LLM
+            conversation_text = ""
+            for msg in recent_messages:
+                role = msg["role"]
+                content_parts = msg.get("content", [])
+                for part in content_parts:
+                    if "text" in part:
+                        conversation_text += f"{role.upper()}: {part['text']}\n\n"
+            
+            # Construct the prompt
+            full_prompt = f"{self.state_update_prompt}\n\n# Conversation History\n{conversation_text}\n\n# Current State\n{json.dumps(self.conversation_state, indent=2)}"
+            
+            # Call LLM to extract state
+            response = self.bedrock_client.converse(
+                modelId=self.model_id,
+                messages=[{"role": "user", "content": [{"text": full_prompt}]}],
+                inferenceConfig={"temperature": 0.0}  # Use low temperature for consistent extraction
+            )
+            
+            # Parse the response
+            assistant_content = response["output"]["message"]["content"]
+            if assistant_content and len(assistant_content) > 0 and "text" in assistant_content[0]:
+                response_text = assistant_content[0]["text"].strip()
+                
+                # Extract JSON from response (handle potential markdown code blocks)
+                json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
+                if json_match:
+                    response_text = json_match.group(1)
+                elif response_text.startswith('```') and response_text.endswith('```'):
+                    response_text = response_text[3:-3].strip()
+                    if response_text.startswith('json'):
+                        response_text = response_text[4:].strip()
+                
+                # Parse and update state
+                new_state = json.loads(response_text)
+                with self._lock:
+                    self.conversation_state = new_state
+                
+                # Log only the final conversation state
+                logger.info(f"[CONVERSATION_STATE] {json.dumps(self.conversation_state, indent=2)}")
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"[STATE_UPDATE] Failed to parse LLM response as JSON: {e}")
+            logger.error(f"[STATE_UPDATE] Response text: {response_text}")
+        except Exception as e:
+            logger.error(f"[STATE_UPDATE] Error updating conversation state: {e}")
+            import traceback
+            logger.error(f"[STATE_UPDATE] Traceback: {traceback.format_exc()}")  
 
     
 
@@ -288,10 +360,93 @@ class Session:
         inference_config = {"temperature": temperature}
         additional_model_fields = {"top_k": top_k}
 
+        # Update conversation state after user message
+        await self.update_conversation_state()
+        
+        # Inject conversation state as context for the main LLM
+        with self._lock:
+            # Format explicit preferences
+            explicit = self.conversation_state['explicit_preferences']
+            explicit_lines = []
+            if explicit.get('budget'):
+                explicit_lines.append(f"  Budget: {explicit['budget']}")
+            if explicit.get('brands'):
+                explicit_lines.append(f"  Brands: {', '.join(explicit['brands'])}")
+            if explicit.get('other_explicit'):
+                for key, value in explicit['other_explicit'].items():
+                    explicit_lines.append(f"  {key}: {value}")
+            explicit_text = '\n'.join(explicit_lines) if explicit_lines else '  (none)'
+            
+            # Format implicit preferences
+            implicit = self.conversation_state['implicit_preferences']
+            implicit_lines = []
+            if implicit.get('inferred_needs'):
+                implicit_lines.append(f"  Inferred needs: {', '.join(implicit['inferred_needs'])}")
+            if implicit.get('usage_context'):
+                implicit_lines.append(f"  Usage context: {implicit['usage_context']}")
+            if implicit.get('other_implicit'):
+                for key, value in implicit['other_implicit'].items():
+                    implicit_lines.append(f"  {key}: {value}")
+            implicit_text = '\n'.join(implicit_lines) if implicit_lines else '  (none)'
+            
+            # Format product dimensions and attributes
+            dimensions_text = ""
+            if self.conversation_state['product_dimensions']:
+                dim_list = []
+                for dim in self.conversation_state['product_dimensions']:
+                    dim_name = dim.get('dimension_name', 'Unknown')
+                    dim_list.append(f"  {dim_name}:")
+                    if dim.get('attributes'):
+                        for attr in dim['attributes']:
+                            attr_name = attr.get('name', 'unknown')
+                            attr_value = attr.get('value', 'N/A')
+                            is_explicit = '✓' if attr.get('is_explicit', False) else '~'
+                            dim_list.append(f"    [{is_explicit}] {attr_name}: {attr_value}")
+                dimensions_text = '\n'.join(dim_list)
+            else:
+                dimensions_text = "  (none)"
+            
+            # Format recent products
+            products_text = ""
+            if self.conversation_state['recent_products']:
+                products_list = []
+                for prod in self.conversation_state['recent_products']:
+                    prod_info = f"  - {prod.get('name', 'Unknown')}"
+                    if prod.get('price'):
+                        prod_info += f" ({prod['price']})"
+                    products_list.append(prod_info)
+                products_text = '\n'.join(products_list)
+            else:
+                products_text = "  (none)"
+            
+            state_context = f"""<conversation_state>
+Product Category: {self.conversation_state['product_category'] or '(none)'}
+Usage Scenario: {self.conversation_state['usage_scenario'] or '(none)'}
+
+Explicit Preferences (user stated):
+{explicit_text}
+
+Implicit Preferences (inferred):
+{implicit_text}
+
+Product Dimensions & Attributes:
+{dimensions_text}
+
+Recent Products Discussed:
+{products_text}
+</conversation_state>"""
+            
+            self.messages.append({
+                "role": "user",
+                "content": [{"text": state_context}],
+                "createdAt": _now_iso(),
+                "hidden": True
+            })
+        
         try:
             _llm_start = time.perf_counter()
             sanitized_messages = _normalize_tool_inputs(self.messages)
-            logger.info(f"sanitized_messages: {sanitized_messages}")
+            #logger.info(f"sanitized_messages: {sanitized_messages}")
             response = self.bedrock_client.converse_stream(
                 modelId=self.model_id,
                 messages=sanitized_messages,
@@ -360,12 +515,12 @@ class Session:
 
             for tool_request in tool_requests:
                 if 'toolUse' in tool_request:
-                    logger.info(f"tool_request: {tool_request}")
+                    #logger.info(f"tool_request: {tool_request}")
                     tool = tool_request['toolUse']
                     tool_name = tool['name']
                     tool_input = tool['input']
                     tool_use_id = tool['toolUseId']
-                    logger.info(f"🛠️ Tool used: {tool_name} with input {tool_input}")
+                    #logger.info(f"🛠️ Tool used: {tool_name} with input {tool_input}")
                     
                     # Notify client about tool use
                     yield {"type": "tool_use", "tool": tool_name, "input": tool_input}
@@ -373,21 +528,21 @@ class Session:
                     # Handle async tool calls
                     try:
                         _tool_start = time.perf_counter()
-                        logger.info(f"[TOOL_EXEC] Starting execution of tool: {tool_name}")
-                        logger.info(f"[TOOL_EXEC] Tool input: {tool_input}")
+                        #logger.info(f"[TOOL_EXEC] Starting execution of tool: {tool_name}")
+                        #logger.info(f"[TOOL_EXEC] Tool input: {tool_input}")
                         
                         if tool_name == 'search':
                             result_text = await self.search(tool_input['query'])
-                            logger.info(f"[TOOL_EXEC] search returned {len(result_text)} characters")
-                            logger.info(f"[TOOL_EXEC] search result preview: {result_text[:500]}")
+                            #logger.info(f"[TOOL_EXEC] search returned {len(result_text)} characters")
+                            #logger.info(f"[TOOL_EXEC] search result preview: {result_text[:500]}")
                             tool_result = {
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": result_text}]
                             }
                         elif tool_name == 'visit_product':
-                            logger.info(f"[TOOL_EXEC] visit_product input: {tool_input}")
+                            #logger.info(f"[TOOL_EXEC] visit_product input: {tool_input}")
                             result_text = await self.visit_product(tool_input['product_url'])
-                            logger.info(f"[TOOL_EXEC] visit_product returned {len(result_text or '')} characters")
+                            #logger.info(f"[TOOL_EXEC] visit_product returned {len(result_text or '')} characters")
                             tool_result = {
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": result_text}]
@@ -400,7 +555,7 @@ class Session:
                                 "status": "error"
                             }
                         
-                        logger.info(f"[TOOL_EXEC] Tool result structure: {json.dumps(tool_result, ensure_ascii=False)[:500]}")
+                        #logger.info(f"[TOOL_EXEC] Tool result structure: {json.dumps(tool_result, ensure_ascii=False)[:500]}")
                     except Exception as e:
                         import traceback
                         logger.error(f"[TOOL_EXEC] Exception executing tool {tool_name}: {e}")
@@ -418,7 +573,7 @@ class Session:
                             pass
 
                     tool_result_contents.append({"toolResult": tool_result})
-                    logger.info(f"[TOOL_EXEC] Added tool result to contents, total results: {len(tool_result_contents)}")
+                    #logger.info(f"[TOOL_EXEC] Added tool result to contents, total results: {len(tool_result_contents)}")
                     # Notify client tool is complete
                     yield {"type": "tool_complete", "tool": tool_name}
 
@@ -435,26 +590,26 @@ class Session:
                     sanitized_messages = _normalize_tool_inputs(self.messages)
                     
                     # Log full message details for debugging
-                    logger.info(f"[DEBUG] Total messages count: {len(sanitized_messages)}")
-                    total_chars = 0
-                    for idx, msg in enumerate(sanitized_messages):
-                        msg_chars = len(json.dumps(msg, ensure_ascii=False))
-                        total_chars += msg_chars
-                        logger.info(f"[DEBUG] Message {idx} - role={msg['role']}, chars={msg_chars}, content_blocks={len(msg.get('content', []))}")
-                        for cidx, content in enumerate(msg.get('content', [])):
-                            if 'text' in content:
-                                text_len = len(content['text'])
-                                logger.info(f"[DEBUG]   Content[{cidx}] text length: {text_len}")
-                                logger.info(f"[DEBUG]   Content[{cidx}] text preview: {content['text'][:500]}")
-                            elif 'toolResult' in content:
-                                tool_result = content['toolResult']
-                                result_text = json.dumps(tool_result, ensure_ascii=False)
-                                logger.info(f"[DEBUG]   Content[{cidx}] toolResult length: {len(result_text)}")
-                                logger.info(f"[DEBUG]   Content[{cidx}] toolResult preview: {result_text[:500]}")
-                            elif 'toolUse' in content:
-                                tool_use = content['toolUse']
-                                logger.info(f"[DEBUG]   Content[{cidx}] toolUse: {tool_use['name']}")
-                    logger.info(f"[DEBUG] Total characters in all messages: {total_chars}")
+                    #logger.info(f"[DEBUG] Total messages count: {len(sanitized_messages)}")
+                    #total_chars = 0
+                    #for idx, msg in enumerate(sanitized_messages):
+                    #    msg_chars = len(json.dumps(msg, ensure_ascii=False))
+                    #    total_chars += msg_chars
+                    #    logger.info(f"[DEBUG] Message {idx} - role={msg['role']}, chars={msg_chars}, content_blocks={len(msg.get('content', []))}")
+                    #    for cidx, content in enumerate(msg.get('content', [])):
+                    #        if 'text' in content:
+                    #            text_len = len(content['text'])
+                    #            logger.info(f"[DEBUG]   Content[{cidx}] text length: {text_len}")
+                    #            logger.info(f"[DEBUG]   Content[{cidx}] text preview: {content['text'][:500]}")
+                    #        elif 'toolResult' in content:
+                    #            tool_result = content['toolResult']
+                    #            result_text = json.dumps(tool_result, ensure_ascii=False)
+                    #            logger.info(f"[DEBUG]   Content[{cidx}] toolResult length: {len(result_text)}")
+                    #            logger.info(f"[DEBUG]   Content[{cidx}] toolResult preview: {result_text[:500]}")
+                    #        elif 'toolUse' in content:
+                    #            tool_use = content['toolUse']
+                    #            logger.info(f"[DEBUG]   Content[{cidx}] toolUse: {tool_use['name']}")
+                    #logger.info(f"[DEBUG] Total characters in all messages: {total_chars}")
                     
                     response = self.bedrock_client.converse_stream(
                         modelId=self.model_id,
@@ -503,7 +658,7 @@ class Session:
                                         except Exception:
                                             content["toolUse"]["input"] = {}
 
-                    logger.info(f"output_message: {output_message}")
+                    #logger.info(f"output_message: {output_message}")
                     self.messages.append(output_message)
                 except Exception as e:
                     _llm_follow_elapsed_ms = (time.perf_counter() - _llm_follow_start) * 1000.0
@@ -537,7 +692,7 @@ class Session:
                         break
                 if not should_remove:
                     new_messages.append(m)
-        print(f"new_messages: {new_messages}")
+        #print(f"new_messages: {new_messages}")
         self.messages = new_messages
         
         _function_elapsed_ms = (time.perf_counter() - _function_start_ms) * 1000.0
@@ -580,8 +735,8 @@ class Session:
         try:
             _llm_start = time.perf_counter()
             sanitized_messages = _normalize_tool_inputs(self.messages)
-            logger.info(f"sanitized_messages: {sanitized_messages}")
-            logger.info(f"system_prompts: {self.system_prompts}")
+            #logger.info(f"sanitized_messages: {sanitized_messages}")
+            #logger.info(f"system_prompts: {self.system_prompts}")
             response = self.bedrock_client.converse_stream(
                 modelId=self.model_id,
                 messages=sanitized_messages,
@@ -657,26 +812,26 @@ class Session:
                     tool_name = tool['name']
                     tool_input = tool['input']
                     tool_use_id = tool['toolUseId']
-                    logger.info(f"🛠️ Tool used: {tool_name} with input {tool_input}")
+                    #logger.info(f"🛠️ Tool used: {tool_name} with input {tool_input}")
 
                     # Handle async tool calls
                     try:
                         _tool_start = time.perf_counter()
-                        logger.info(f"[TOOL_EXEC] Starting execution of tool: {tool_name}")
-                        logger.info(f"[TOOL_EXEC] Tool input: {tool_input}")
+                        #logger.info(f"[TOOL_EXEC] Starting execution of tool: {tool_name}")
+                        #logger.info(f"[TOOL_EXEC] Tool input: {tool_input}")
                         
                         if tool_name == 'search':
                             result_text = await self.search(tool_input['query'])
-                            logger.info(f"[TOOL_EXEC] search returned {len(result_text)} characters")
-                            logger.info(f"[TOOL_EXEC] search result preview: {result_text[:500]}")
+                            #logger.info(f"[TOOL_EXEC] search returned {len(result_text)} characters")
+                            #logger.info(f"[TOOL_EXEC] search result preview: {result_text[:500]}")
                             tool_result = {
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": result_text}]
                             }
                         elif tool_name == 'visit_product':
-                            logger.info(f"[TOOL_EXEC] visit_product input: {tool_input}")
+                            #logger.info(f"[TOOL_EXEC] visit_product input: {tool_input}")
                             result_text = await self.visit_product(tool_input['product_url'])
-                            logger.info(f"[TOOL_EXEC] visit_product returned {len(result_text or '')} characters")
+                            #logger.info(f"[TOOL_EXEC] visit_product returned {len(result_text or '')} characters")
                             tool_result = {
                                 "toolUseId": tool_use_id,
                                 "content": [{"text": result_text}]
@@ -689,7 +844,7 @@ class Session:
                                 "status": "error"
                             }
                         
-                        logger.info(f"[TOOL_EXEC] Tool result structure: {json.dumps(tool_result, ensure_ascii=False)[:500]}")
+                        #logger.info(f"[TOOL_EXEC] Tool result structure: {json.dumps(tool_result, ensure_ascii=False)[:500]}")
                     except Exception as e:
                         import traceback
                         logger.error(f"[TOOL_EXEC] Exception executing tool {tool_name}: {e}")
@@ -707,7 +862,7 @@ class Session:
                             pass
 
                     tool_result_contents.append({"toolResult": tool_result})
-                    logger.info(f"[TOOL_EXEC] Added tool result to contents, total results: {len(tool_result_contents)}")
+                    #logger.info(f"[TOOL_EXEC] Added tool result to contents, total results: {len(tool_result_contents)}")
 
             if tool_result_contents:
                 # Add a single user message containing ALL toolResult blocks
@@ -722,29 +877,29 @@ class Session:
                     sanitized_messages = _normalize_tool_inputs(self.messages)
                     
                     # Log full message details for debugging
-                    logger.info(f"[DEBUG] Total messages count: {len(sanitized_messages)}")
-                    total_chars = 0
-                    for idx, msg in enumerate(sanitized_messages):
-                        msg_chars = len(json.dumps(msg, ensure_ascii=False))
-                        total_chars += msg_chars
-                        logger.info(f"[DEBUG] Message {idx} - role={msg['role']}, chars={msg_chars}, content_blocks={len(msg.get('content', []))}")
-                        for cidx, content in enumerate(msg.get('content', [])):
-                            if 'text' in content:
-                                text_len = len(content['text'])
-                                logger.info(f"[DEBUG]   Content[{cidx}] text length: {text_len}")
-                                logger.info(f"[DEBUG]   Content[{cidx}] text preview: {content['text'][:500]}")
-                            elif 'toolResult' in content:
-                                tool_result = content['toolResult']
-                                result_text = json.dumps(tool_result, ensure_ascii=False)
-                                logger.info(f"[DEBUG]   Content[{cidx}] toolResult length: {len(result_text)}")
-                                logger.info(f"[DEBUG]   Content[{cidx}] toolResult preview: {result_text[:500]}")
-                            elif 'toolUse' in content:
-                                tool_use = content['toolUse']
-                                logger.info(f"[DEBUG]   Content[{cidx}] toolUse: {tool_use['name']}")
-                    logger.info(f"[DEBUG] Total characters in all messages: {total_chars}")
+                    #logger.info(f"[DEBUG] Total messages count: {len(sanitized_messages)}")
+                    #total_chars = 0
+                    #for idx, msg in enumerate(sanitized_messages):
+                    #    msg_chars = len(json.dumps(msg, ensure_ascii=False))
+                    #    total_chars += msg_chars
+                    #    logger.info(f"[DEBUG] Message {idx} - role={msg['role']}, chars={msg_chars}, content_blocks={len(msg.get('content', []))}")
+                    #    for cidx, content in enumerate(msg.get('content', [])):
+                    #        if 'text' in content:
+                    #            text_len = len(content['text'])
+                    #            logger.info(f"[DEBUG]   Content[{cidx}] text length: {text_len}")
+                    #            logger.info(f"[DEBUG]   Content[{cidx}] text preview: {content['text'][:500]}")
+                    #        elif 'toolResult' in content:
+                    #            tool_result = content['toolResult']
+                    #            result_text = json.dumps(tool_result, ensure_ascii=False)
+                    #            logger.info(f"[DEBUG]   Content[{cidx}] toolResult length: {len(result_text)}")
+                    #            logger.info(f"[DEBUG]   Content[{cidx}] toolResult preview: {result_text[:500]}")
+                    #        elif 'toolUse' in content:
+                    #            tool_use = content['toolUse']
+                    #            logger.info(f"[DEBUG]   Content[{cidx}] toolUse: {tool_use['name']}")
+                    #logger.info(f"[DEBUG] Total characters in all messages: {total_chars}")
                     
-                    logger.info(f"sanitized_messages: {sanitized_messages}")
-                    logger.info(f"system_prompts: {self.system_prompts}")
+                    #logger.info(f"sanitized_messages: {sanitized_messages}")
+                    #logger.info(f"system_prompts: {self.system_prompts}")
                     response = self.bedrock_client.converse_stream(
                         modelId=self.model_id,
                         messages=sanitized_messages,
@@ -791,7 +946,7 @@ class Session:
                                             content["toolUse"]["input"] = {}
 
                     response['stopReason'] = stop_reason
-                    logger.info(f"output_message: {output_message}")
+                    #logger.info(f"output_message: {output_message}")
                     self.messages.append(output_message)
                 except Exception as e:
                     _llm_follow_elapsed_ms = (time.perf_counter() - _llm_follow_start) * 1000.0
@@ -820,11 +975,11 @@ class Session:
                         break
                 if not should_remove:
                     new_messages.append(m)
-        print(f"new_messages: {new_messages}")
+        #print(f"new_messages: {new_messages}")
         self.messages = new_messages
         _function_elapsed_ms = (time.perf_counter() - _function_start_ms) * 1000.0
         logger.info(f"[TIMING] generate_conversation_async total {_function_elapsed_ms:.2f} ms")
-        logger.info(f"output_message: {output_message}")
+        #logger.info(f"output_message: {output_message}")
         return output_message
 
     async def initialize_bedrock(self):
@@ -1166,6 +1321,22 @@ async def get_messages_api(session_id):
                 "hidden": m.get("hidden", False)
             })
     return jsonify({"success": True, "messages": flat}), 200
+
+
+@app.route('/sessions/<session_id>/conversation-state', methods=['GET'])
+async def get_conversation_state_api(session_id):
+    """Get the current conversation state for a session."""
+    s = get_session(session_id)
+    if not s:
+        return jsonify({"success": False, "error": "Session not found"}), 404
+    
+    with s._lock:
+        state = s.conversation_state
+    
+    return jsonify({
+        "success": True,
+        "conversation_state": state
+    }), 200
 
 
 @app.route('/health', methods=['GET'])

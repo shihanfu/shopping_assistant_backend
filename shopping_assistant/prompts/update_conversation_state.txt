@@ -1,0 +1,121 @@
+# Task
+Extract and update conversation state from the ongoing shopping assistant conversation.
+
+# Input
+You will receive the recent conversation history between a user and a shopping assistant.
+
+# Output Format
+Return ONLY a valid JSON object with this exact structure (no additional text):
+
+{
+    "product_category": "string or null",
+    "usage_scenario": "string or null",
+    "explicit_preferences": {
+        "budget": "string or null",
+        "brands": ["brand1", "brand2"],
+        "other_explicit": {}
+    },
+    "implicit_preferences": {
+        "inferred_needs": [],
+        "usage_context": "string or null",
+        "other_implicit": {}
+    },
+    "product_dimensions": [
+        {
+            "dimension_name": "dimension name",
+            "attributes": [
+                {
+                    "name": "attribute name",
+                    "value": "user preference or requirement",
+                    "is_explicit": true/false
+                }
+            ]
+        }
+    ],
+    "recent_products": [
+        {
+            "name": "product name",
+            "url": "product url",
+            "price": "price as string",
+            "category": "product category",
+            "mentioned_at": "most recent mention timestamp"
+        }
+    ]
+}
+
+# Extraction Rules
+
+## Product Category
+- Extract the **main product type** being discussed (e.g., "jacket", "monitor", "laptop", "shoes")
+- For "hiking jacket" → category is "jacket"
+- For "gaming monitor" → category is "monitor"
+- Use singular form
+- Set to null if no clear category
+
+## Usage Scenario
+- Extract the **primary use case** or context (e.g., "hiking", "gaming", "office work", "running", "photography")
+- This answers "What will the user do with this product?"
+- For "hiking jacket" → scenario is "hiking"
+- For "gaming monitor" → scenario is "gaming"
+- Set to null if not mentioned
+
+## Explicit Preferences
+User **directly stated** preferences:
+- **Budget**: Price range explicitly mentioned (e.g., "under $100", "$50-$200")
+- **Brands**: Brand names user explicitly mentioned or requested
+- **Other explicit**: Any other directly stated preferences (size, color, model, etc.)
+
+## Implicit Preferences
+Preferences **inferred** from context:
+- **Inferred needs**: Requirements implied by usage scenario (e.g., "gaming" implies high refresh rate)
+- **Usage context**: Environmental or situational factors (e.g., "outdoor" for hiking jacket)
+- **Other implicit**: Performance expectations, quality level, etc.
+
+## Product Dimensions & Attributes
+Identify relevant **dimensions** for the product category and their **attributes**:
+
+### Examples by Category:
+
+**Jacket:**
+- Dimension: "Weather Protection" → Attributes: waterproof, windproof, insulation
+- Dimension: "Physical Properties" → Attributes: weight, size, fit
+- Dimension: "Design" → Attributes: color, style, pockets
+
+**Monitor:**
+- Dimension: "Visual Representation" → Attributes: resolution, refresh rate, color accuracy, panel type
+- Dimension: "Physical Properties" → Attributes: size (inches), weight, bezel
+- Dimension: "Connectivity" → Attributes: HDMI ports, DisplayPort, USB-C
+- Dimension: "Performance" → Attributes: response time, input lag, brightness
+
+**Laptop:**
+- Dimension: "Computing Power" → Attributes: CPU, RAM, GPU
+- Dimension: "Storage" → Attributes: SSD size, type
+- Dimension: "Display" → Attributes: resolution, size, panel type
+- Dimension: "Physical Properties" → Attributes: weight, thickness, build quality
+
+### Attribute Format:
+- **name**: The specific attribute (e.g., "resolution", "waterproof")
+- **value**: User's preference or requirement (e.g., "1920x1080 or higher", "yes", "at least 144Hz")
+- **is_explicit**: true if user directly mentioned it, false if inferred
+
+## Recent Products
+- Track up to 5 most recently mentioned products
+- Include: product name, URL (if available), price (if mentioned), category, and timestamp
+- Only include products explicitly mentioned or visited in the conversation
+
+# Important Guidelines
+- Extract ONLY information explicitly stated or strongly implied in the conversation
+- Distinguish between explicit (user said it) and implicit (inferred from context)
+- For attributes: mark as explicit only if user directly mentioned that attribute
+- Product dimensions should be relevant to the current product category
+- Set fields to null or empty if no relevant information exists
+- Maintain consistency across conversation turns
+- Update existing preferences if new information contradicts old information
+- Return ONLY the JSON object, no explanatory text before or after
+
+# Inference Guidelines
+- **Gaming** scenario → infer need for high performance, fast response time
+- **Hiking/Outdoor** scenario → infer need for durability, weather protection
+- **Professional/Work** scenario → infer need for reliability, ergonomics
+- **Budget-conscious** language → infer priority on value/price
+- Always mark inferred items with is_explicit: false
