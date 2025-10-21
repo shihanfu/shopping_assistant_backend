@@ -63,19 +63,22 @@ class Session:
         # Initialize conversation state
         self.conversation_state = {
             "product_category": None,
-            "usage_scenario": None,
-            "explicit_preferences": {
+            "inferred_user_preferences": {
+                "usage_scenario": None,
                 "budget": None,
-                "brands": [],
-                "other_explicit": {}
+                "explicit_user_preferences": [],
+                "implicit_user_preferences": [],
             },
-            "implicit_preferences": {
-                "inferred_needs": [],
-                "usage_context": None,
-                "other_implicit": {}
-            },
-            "product_dimensions": [],
-            "recent_products": []
+            "inferred_product_attributes": {
+                "dimension_name": "dimension name",
+                "attributes": [
+                    {
+                        "name": "attribute name",
+                        "value": "user preference or requirement",
+                        "is_explicit": False  # True if explicitly stated, False if inferred
+                    }
+                ]
+            }
         }
         
         # Load conversation state update prompt
@@ -365,63 +368,43 @@ class Session:
         
         # Inject conversation state as context for the main LLM
         with self._lock:
+            # Extract user preferences
+            user_prefs = self.conversation_state["inferred_user_preferences"]
+            
             # Format explicit preferences
-            explicit = self.conversation_state['explicit_preferences']
+            explicit_prefs = user_prefs["explicit_user_preferences"]
             explicit_lines = []
-            if explicit.get('budget'):
-                explicit_lines.append(f"  Budget: {explicit['budget']}")
-            if explicit.get('brands'):
-                explicit_lines.append(f"  Brands: {', '.join(explicit['brands'])}")
-            if explicit.get('other_explicit'):
-                for key, value in explicit['other_explicit'].items():
-                    explicit_lines.append(f"  {key}: {value}")
+            if user_prefs["budget"]:
+                explicit_lines.append(f"  Budget: {user_prefs['budget']}")
+            for pref in explicit_prefs:
+                explicit_lines.append(f"  - {pref}")
             explicit_text = '\n'.join(explicit_lines) if explicit_lines else '  (none)'
             
             # Format implicit preferences
-            implicit = self.conversation_state['implicit_preferences']
+            implicit_prefs = user_prefs["implicit_user_preferences"]
             implicit_lines = []
-            if implicit.get('inferred_needs'):
-                implicit_lines.append(f"  Inferred needs: {', '.join(implicit['inferred_needs'])}")
-            if implicit.get('usage_context'):
-                implicit_lines.append(f"  Usage context: {implicit['usage_context']}")
-            if implicit.get('other_implicit'):
-                for key, value in implicit['other_implicit'].items():
-                    implicit_lines.append(f"  {key}: {value}")
+            for pref in implicit_prefs:
+                implicit_lines.append(f"  - {pref}")
             implicit_text = '\n'.join(implicit_lines) if implicit_lines else '  (none)'
             
-            # Format product dimensions and attributes
-            dimensions_text = ""
-            if self.conversation_state['product_dimensions']:
-                dim_list = []
-                for dim in self.conversation_state['product_dimensions']:
-                    dim_name = dim.get('dimension_name', 'Unknown')
-                    dim_list.append(f"  {dim_name}:")
-                    if dim.get('attributes'):
-                        for attr in dim['attributes']:
-                            attr_name = attr.get('name', 'unknown')
-                            attr_value = attr.get('value', 'N/A')
-                            is_explicit = '✓' if attr.get('is_explicit', False) else '~'
-                            dim_list.append(f"    [{is_explicit}] {attr_name}: {attr_value}")
-                dimensions_text = '\n'.join(dim_list)
+            # Format product attributes
+            prod_attrs = self.conversation_state["inferred_product_attributes"]
+            attributes_text = ""
+            if prod_attrs and prod_attrs.get("attributes"):
+                dim_name = prod_attrs.get("dimension_name", "Product Attributes")
+                attr_lines = [f"  {dim_name}:"]
+                for attr in prod_attrs["attributes"]:
+                    attr_name = attr["name"]
+                    attr_value = attr["value"]
+                    is_explicit = '✓' if attr["is_explicit"] else '~'
+                    attr_lines.append(f"    [{is_explicit}] {attr_name}: {attr_value}")
+                attributes_text = '\n'.join(attr_lines)
             else:
-                dimensions_text = "  (none)"
-            
-            # Format recent products
-            products_text = ""
-            if self.conversation_state['recent_products']:
-                products_list = []
-                for prod in self.conversation_state['recent_products']:
-                    prod_info = f"  - {prod.get('name', 'Unknown')}"
-                    if prod.get('price'):
-                        prod_info += f" ({prod['price']})"
-                    products_list.append(prod_info)
-                products_text = '\n'.join(products_list)
-            else:
-                products_text = "  (none)"
+                attributes_text = "  (none)"
             
             state_context = f"""<conversation_state>
 Product Category: {self.conversation_state['product_category'] or '(none)'}
-Usage Scenario: {self.conversation_state['usage_scenario'] or '(none)'}
+Usage Scenario: {user_prefs['usage_scenario'] or '(none)'}
 
 Explicit Preferences (user stated):
 {explicit_text}
@@ -429,11 +412,8 @@ Explicit Preferences (user stated):
 Implicit Preferences (inferred):
 {implicit_text}
 
-Product Dimensions & Attributes:
-{dimensions_text}
-
-Recent Products Discussed:
-{products_text}
+Product Attributes:
+{attributes_text}
 </conversation_state>"""
             
             self.messages.append({
