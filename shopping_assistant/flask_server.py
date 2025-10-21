@@ -63,6 +63,8 @@ class Session:
         # Initialize conversation state
         self.conversation_state = {
             "product_category": None,
+            "search_query": None,
+            "user_intention": None,  # One of: "product recommendation", "product detail QA", "product comparison"
             "inferred_user_preferences": {
                 "usage_scenario": None,
                 "budget": None,
@@ -74,7 +76,7 @@ class Session:
                 "attributes": [
                     {
                         "name": "attribute name",
-                        "value": "user preference or requirement",
+                        "value": "attribute value",
                         "is_explicit": False  # True if explicitly stated, False if inferred
                     }
                 ]
@@ -279,8 +281,8 @@ class Session:
     async def update_conversation_state(self):
         """Update conversation state by analyzing recent conversation history."""
         try:
-            # Get last 10 messages for context (or all if less than 10)
-            recent_messages = self.messages[-10:] if len(self.messages) > 10 else self.messages
+            # Get all messages from current session
+            recent_messages = self.messages
             
             # Format conversation history for the LLM
             conversation_text = ""
@@ -374,8 +376,6 @@ class Session:
             # Format explicit preferences
             explicit_prefs = user_prefs["explicit_user_preferences"]
             explicit_lines = []
-            if user_prefs["budget"]:
-                explicit_lines.append(f"  Budget: {user_prefs['budget']}")
             for pref in explicit_prefs:
                 explicit_lines.append(f"  - {pref}")
             explicit_text = '\n'.join(explicit_lines) if explicit_lines else '  (none)'
@@ -404,15 +404,20 @@ class Session:
             
             state_context = f"""<conversation_state>
 Product Category: {self.conversation_state['product_category'] or '(none)'}
-Usage Scenario: {user_prefs['usage_scenario'] or '(none)'}
+Search Query: {self.conversation_state['search_query'] or '(none)'}
+User Intention: {self.conversation_state['user_intention'] or '(none)'}
 
+[User Preferences]
+Usage Scenario: {user_prefs['usage_scenario'] or '(none)'}
+Budget: {user_prefs['budget'] or '(none)'}
 Explicit Preferences (user stated):
 {explicit_text}
-
 Implicit Preferences (inferred):
 {implicit_text}
 
-Product Attributes:
+[Inferred Product Attributes]
+Dimension Name: {prod_attrs.get("dimension_name", "Product Attributes")}
+Attributes:
 {attributes_text}
 </conversation_state>"""
             
