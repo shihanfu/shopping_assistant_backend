@@ -14,7 +14,7 @@ from botocore.exceptions import ClientError
 from shopping_assistant.prompts.system_prompt import SYSTEM_PROMPT
 # from tool_config import TOOL_CONFIG
 from shopping_assistant.tool_config import TOOL_CONFIG
-from shopping_assistant.config import get_model_id, get_temperature, get_top_k, get_server_port, get_server_host, MAGENTO_API_CONFIG
+from shopping_assistant.config import get_model_id, get_state_model_id, get_temperature, get_top_k, get_server_port, get_server_host, MAGENTO_API_CONFIG
 
 from rl_web_agent.env import WebAgentEnv
 import hydra
@@ -271,11 +271,14 @@ class Session:
 
     async def update_conversation_state(self):
         """Update conversation state by analyzing recent conversation history."""
+        import time
+        start_time = time.perf_counter()
         try:
             # Get all messages from current session
             recent_messages = self.messages
             
             # Format conversation history for the LLM
+            format_start = time.perf_counter()
             conversation_text = ""
             for msg in recent_messages:
                 role = msg["role"]
@@ -286,15 +289,22 @@ class Session:
             
             # Construct the prompt
             full_prompt = f"{self.state_update_prompt}\n\n# Conversation History\n{conversation_text}\n\n# Current State\n{json.dumps(self.conversation_state, indent=2)}"
+            format_time = time.perf_counter() - format_start
+            logger.info(f"[STATE_UPDATE_TIMING] Formatting conversation history took {format_time:.3f}s")
             
-            # Call LLM to extract state
+            # Call LLM to extract state (using faster Haiku model)
+            llm_start = time.perf_counter()
+            state_model_id = get_state_model_id()
             response = self.bedrock_client.converse(
-                modelId=self.model_id,
+                modelId=state_model_id,
                 messages=[{"role": "user", "content": [{"text": full_prompt}]}],
                 inferenceConfig={"temperature": 0.0}  # Use low temperature for consistent extraction
             )
+            llm_time = time.perf_counter() - llm_start
+            logger.info(f"[STATE_UPDATE_TIMING] LLM API call (model: {state_model_id.split('/')[-1]}) took {llm_time:.3f}s")
             
             # Parse the response
+            parse_start = time.perf_counter()
             assistant_content = response["output"]["message"]["content"]
             if assistant_content and len(assistant_content) > 0 and "text" in assistant_content[0]:
                 response_text = assistant_content[0]["text"].strip()
@@ -313,13 +323,24 @@ class Session:
                 with self._lock:
                     self.conversation_state = new_state
                 
+                parse_time = time.perf_counter() - parse_start
+                logger.info(f"[STATE_UPDATE_TIMING] Parsing and updating state took {parse_time:.3f}s")
+                
                 # Log only the final conversation state
                 logger.info(f"[CONVERSATION_STATE] {json.dumps(self.conversation_state, indent=2)}")
                 
+                # Log total timing
+                elapsed_time = time.perf_counter() - start_time
+                logger.info(f"[STATE_UPDATE_TIMING] Total conversation state update completed in {elapsed_time:.3f}s")
+                
         except json.JSONDecodeError as e:
+            elapsed_time = time.perf_counter() - start_time
+            logger.error(f"[STATE_UPDATE_TIMING] Failed after {elapsed_time:.3f}s")
             logger.error(f"[STATE_UPDATE] Failed to parse LLM response as JSON: {e}")
             logger.error(f"[STATE_UPDATE] Response text: {response_text}")
         except Exception as e:
+            elapsed_time = time.perf_counter() - start_time
+            logger.error(f"[STATE_UPDATE_TIMING] Failed after {elapsed_time:.3f}s")
             logger.error(f"[STATE_UPDATE] Error updating conversation state: {e}")
             import traceback
             logger.error(f"[STATE_UPDATE] Traceback: {traceback.format_exc()}")  
@@ -357,9 +378,13 @@ class Session:
         additional_model_fields = {"top_k": top_k}
 
         # Update conversation state after user message
+        state_update_start = time.perf_counter()
         await self.update_conversation_state()
+        state_update_time = time.perf_counter() - state_update_start
+        logger.info(f"[TIMING] update_conversation_state call took {state_update_time:.3f}s")
         
         # Inject conversation state as context for the main LLM
+        context_inject_start = time.perf_counter()
         with self._lock:
             # Extract user preferences
             user_prefs = self.conversation_state["inferred_user_preferences"]
@@ -421,6 +446,9 @@ Implicit Preferences (inferred):
                 "hidden": True
             })
         
+        context_inject_time = time.perf_counter() - context_inject_start
+        logger.info(f"[TIMING] Context injection took {context_inject_time:.3f}s")
+        
         try:
             _llm_start = time.perf_counter()
             sanitized_messages = _normalize_tool_inputs(self.messages)
@@ -433,8 +461,8 @@ Implicit Preferences (inferred):
                 additionalModelRequestFields=additional_model_fields,
                 toolConfig=self.tool_config,
             )
-            _llm_elapsed_ms = (time.perf_counter() - _llm_start) * 1000.0
-            logger.info(f"[TIMING] LLM converse (initial) took {_llm_elapsed_ms:.2f} ms")
+            _llm_elapsed = time.perf_counter() - _llm_start
+            logger.info(f"[TIMING] LLM converse (initial) took {_llm_elapsed:.3f}s")
 
             # Process streaming response and yield chunks
             output_message = {"role": "assistant", "content": []}
@@ -476,8 +504,8 @@ Implicit Preferences (inferred):
             with self._lock:
                 self.messages.append(output_message)
         except Exception as e:
-            _llm_elapsed_ms = (time.perf_counter() - _llm_start) * 1000.0
-            logger.error(f"[TIMING] LLM converse (initial) failed after {_llm_elapsed_ms:.2f} ms: {e}")
+            _llm_elapsed = time.perf_counter() - _llm_start
+            logger.error(f"[TIMING] LLM converse (initial) failed after {_llm_elapsed:.3f}s: {e}")
             error_message = {
                 "role": "assistant",
                 "content": [{"text": f"I encountered an error: {str(e)}"}]
@@ -545,8 +573,8 @@ Implicit Preferences (inferred):
                         }
                     finally:
                         try:
-                            _tool_elapsed_ms = (time.perf_counter() - _tool_start) * 1000.0
-                            logger.info(f"[TIMING] Tool '{tool_name}' took {_tool_elapsed_ms:.2f} ms")
+                            _tool_elapsed = time.perf_counter() - _tool_start
+                            logger.info(f"[TIMING] Tool '{tool_name}' took {_tool_elapsed:.3f}s")
                         except Exception:
                             pass
 
@@ -597,8 +625,8 @@ Implicit Preferences (inferred):
                         additionalModelRequestFields=additional_model_fields,
                         toolConfig=self.tool_config
                     )
-                    _llm_follow_elapsed_ms = (time.perf_counter() - _llm_follow_start) * 1000.0
-                    logger.info(f"[TIMING] LLM converse (after tools) took {_llm_follow_elapsed_ms:.2f} ms")
+                    _llm_follow_elapsed = time.perf_counter() - _llm_follow_start
+                    logger.info(f"[TIMING] LLM converse (after tools) took {_llm_follow_elapsed:.3f}s")
                     
                     # Process streaming response
                     output_message = {"role": "assistant", "content": []}
@@ -639,8 +667,8 @@ Implicit Preferences (inferred):
                     #logger.info(f"output_message: {output_message}")
                     self.messages.append(output_message)
                 except Exception as e:
-                    _llm_follow_elapsed_ms = (time.perf_counter() - _llm_follow_start) * 1000.0
-                    logger.error(f"[TIMING] LLM converse (after tools) failed after {_llm_follow_elapsed_ms:.2f} ms: {e}")
+                    _llm_follow_elapsed = time.perf_counter() - _llm_follow_start
+                    logger.error(f"[TIMING] LLM converse (after tools) failed after {_llm_follow_elapsed:.3f}s: {e}")
                     error_message = {
                         "role": "assistant",
                         "content": [{"text": f"I encountered an error processing the tool results: {str(e)}"}]
@@ -673,8 +701,8 @@ Implicit Preferences (inferred):
         #print(f"new_messages: {new_messages}")
         self.messages = new_messages
         
-        _function_elapsed_ms = (time.perf_counter() - _function_start_ms) * 1000.0
-        logger.info(f"[TIMING] generate_conversation_stream total {_function_elapsed_ms:.2f} ms")
+        _function_elapsed = time.perf_counter() - _function_start_ms
+        logger.info(f"[TIMING] generate_conversation_stream total {_function_elapsed:.3f}s")
         
         # Signal completion
         yield {"type": "done"}
@@ -726,8 +754,8 @@ Implicit Preferences (inferred):
                 #     "latency": "optimized"
                 # }
             )
-            _llm_elapsed_ms = (time.perf_counter() - _llm_start) * 1000.0
-            logger.info(f"[TIMING] LLM converse (initial) took {_llm_elapsed_ms:.2f} ms")
+            _llm_elapsed = time.perf_counter() - _llm_start
+            logger.info(f"[TIMING] LLM converse (initial) took {_llm_elapsed:.3f}s")
 
             # Process streaming response
             output_message = {"role": "assistant", "content": []}
@@ -768,16 +796,16 @@ Implicit Preferences (inferred):
             with self._lock:
                 self.messages.append(output_message)
         except Exception as e:
-            _llm_elapsed_ms = (time.perf_counter() - _llm_start) * 1000.0
-            logger.error(f"[TIMING] LLM converse (initial) failed after {_llm_elapsed_ms:.2f} ms: {e}")
+            _llm_elapsed = time.perf_counter() - _llm_start
+            logger.error(f"[TIMING] LLM converse (initial) failed after {_llm_elapsed:.3f}s: {e}")
             # Create a fallback response
             output_message = {
                 "role": "assistant",
                 "content": [{"text": f"I encountered an error: {str(e)}"}]
             }
             self.messages.append(output_message)
-            _function_elapsed_ms = (time.perf_counter() - _function_start_ms) * 1000.0
-            logger.info(f"[TIMING] generate_conversation_async total {_function_elapsed_ms:.2f} ms (early return)")
+            _function_elapsed = time.perf_counter() - _function_start_ms
+            logger.info(f"[TIMING] generate_conversation_async total {_function_elapsed:.3f}s (early return)")
             return output_message
 
         while response['stopReason'] == 'tool_use':
@@ -834,8 +862,8 @@ Implicit Preferences (inferred):
                         }
                     finally:
                         try:
-                            _tool_elapsed_ms = (time.perf_counter() - _tool_start) * 1000.0
-                            logger.info(f"[TIMING] Tool '{tool_name}' took {_tool_elapsed_ms:.2f} ms")
+                            _tool_elapsed = time.perf_counter() - _tool_start
+                            logger.info(f"[TIMING] Tool '{tool_name}' took {_tool_elapsed:.3f}s")
                         except Exception:
                             pass
 
@@ -886,8 +914,8 @@ Implicit Preferences (inferred):
                         additionalModelRequestFields=additional_model_fields,
                         toolConfig=self.tool_config
                     )
-                    _llm_follow_elapsed_ms = (time.perf_counter() - _llm_follow_start) * 1000.0
-                    logger.info(f"[TIMING] LLM converse (after tools) took {_llm_follow_elapsed_ms:.2f} ms")
+                    _llm_follow_elapsed = time.perf_counter() - _llm_follow_start
+                    logger.info(f"[TIMING] LLM converse (after tools) took {_llm_follow_elapsed:.3f}s")
                     
                     # Process streaming response
                     output_message = {"role": "assistant", "content": []}
@@ -927,8 +955,8 @@ Implicit Preferences (inferred):
                     #logger.info(f"output_message: {output_message}")
                     self.messages.append(output_message)
                 except Exception as e:
-                    _llm_follow_elapsed_ms = (time.perf_counter() - _llm_follow_start) * 1000.0
-                    logger.error(f"[TIMING] LLM converse (after tools) failed after {_llm_follow_elapsed_ms:.2f} ms: {e}")
+                    _llm_follow_elapsed = time.perf_counter() - _llm_follow_start
+                    logger.error(f"[TIMING] LLM converse (after tools) failed after {_llm_follow_elapsed:.3f}s: {e}")
                     output_message = {
                         "role": "assistant",
                         "content": [{"text": f"I encountered an error processing the tool results: {str(e)}"}]
@@ -955,8 +983,8 @@ Implicit Preferences (inferred):
                     new_messages.append(m)
         #print(f"new_messages: {new_messages}")
         self.messages = new_messages
-        _function_elapsed_ms = (time.perf_counter() - _function_start_ms) * 1000.0
-        logger.info(f"[TIMING] generate_conversation_async total {_function_elapsed_ms:.2f} ms")
+        _function_elapsed = time.perf_counter() - _function_start_ms
+        logger.info(f"[TIMING] generate_conversation_async total {_function_elapsed:.3f}s")
         #logger.info(f"output_message: {output_message}")
         return output_message
 
