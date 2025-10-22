@@ -4,30 +4,6 @@ You will be given the conversation history between a user and the shopping assis
 
 # Extraction Rules
 **Handle typos/misspellings**: Attempt reasonable corrections close to user's intent
-## Product Category & Search Query
-When a product is mentioned, extract two fields:
-
-### 1. product_category
-- Extract the **main product type** (the head noun).
-- Use **singular** form.
-- Drop all modifiers (e.g., "gaming", "running", "video", "apple", "summer").
-- Set to null if no clear product type.
-- Examples:
-  - "hiking jacket" → "jacket"
-  - "gaming monitor" → "monitor"
-  - "running shoes" → "shoe"
-  - "apple juice" → "juice"
-  - "beautiful summer dress" → "dress"
-
-### 2. search_query
-- Preserve the **meaningful modifiers** that affect the product's **function, material, use context, brand, or flavor**.
-- Remove **subjective adjectives** that describe style or quality only (e.g., "beautiful", "nice", "cool", "good", "elegant").
-- Examples:
-  - "hiking jacket" → "hiking jacket"
-  - "apple juice" → "apple juice"
-  - "video projector" → "video projector"
-  - "beautiful summer dress" → "summer dress"
-  - "cute running shoes" → "running shoes"
 
 ## User Intention
 Determine the user's primary intention in the current query.
@@ -64,6 +40,41 @@ Examples:
 - "Which is better?"
 - "What's the difference between these two laptops?"
 
+### State Update Logic for Different Intentions
+
+**IMPORTANT**: Not all queries should update the conversation state.
+
+- **Product Recommendation**: Update all fields based on the new query. This is the only intention type that should modify product_category, search_query, preferences, and attributes.
+
+- **Product Detail Q&A**: Only update `user_intention` to "product detail Q&A". **ALL OTHER FIELDS** (product_category, search_query, inferred_user_preferences, inferred_product_attributes) should remain **EXACTLY THE SAME** as the previous conversation state.
+
+- **Product Comparison**: Only update `user_intention` to "product comparison". **ALL OTHER FIELDS** (product_category, search_query, inferred_user_preferences, inferred_product_attributes) should remain **EXACTLY THE SAME** as the previous conversation state.
+
+## Product Category & Search Query
+
+When user is asking for a product recommendation, extract two fields:
+
+### 1. product_category
+- Extract the **main product type** (the head noun).
+- Use **singular** form.
+- Drop all modifiers (e.g., "gaming", "running", "video", "apple", "summer").
+- Set to null if no clear product type.
+- Examples:
+  - "hiking jacket" → "jacket"
+  - "gaming monitor" → "monitor"
+  - "running shoes" → "shoe"
+  - "apple juice" → "juice"
+  - "beautiful summer dress" → "dress"
+
+### 2. search_query
+- Preserve the **meaningful modifiers** that affect the product's **function, material, use context, brand, or flavor**.
+- Remove **subjective adjectives** that describe style or quality only (e.g., "beautiful", "nice", "cool", "good", "elegant").
+- Examples:
+  - "hiking jacket" → "hiking jacket"
+  - "apple juice" → "apple juice"
+  - "video projector" → "video projector"
+  - "beautiful summer dress" → "summer dress"
+  - "cute running shoes" → "running shoes"
 
 ## Inferred User Preferences
 
@@ -272,6 +283,7 @@ Return ONLY a valid JSON object (no additional text before or after):
 - Update fields when new information contradicts previous information
 - **Always output 4-5 dimensions** in `inferred_product_attributes` based on the product category and conversation context
 - Each dimension should include relevant attributes (both explicit and implicit when applicable)
+- **For "product detail Q&A" and "product comparison" intentions**: Only change the `user_intention` field. Keep all other fields (product_category, search_query, preferences, attributes) identical to the previous state
 
 
 # Examples
@@ -367,6 +379,198 @@ Return ONLY a valid JSON object (no additional text before or after):
   "product_category": "monitor",
   "search_query": "gaming monitor",
   "user_intention": "product recommendation",
+  "inferred_user_preferences": {
+    "usage_scenario": "gaming",
+    "budget": "under $500",
+    "explicit_user_preferences": [
+      "resolution: at least 1440p",
+      "brand: ASUS",
+      "response_time: low response time for FPS games"
+    ],
+    "implicit_user_preferences": [
+      "performance: high (for gaming)",
+      "refresh_rate: high refresh rate for gaming",
+      "input_lag: minimal input lag for FPS games"
+    ]
+  },
+  "inferred_product_attributes": [
+    {
+      "dimension_name": "Visual Representation",
+      "attributes": [
+        {
+          "name": "resolution",
+          "value": "at least 1440p",
+          "is_explicit": true
+        },
+        {
+          "name": "refresh_rate",
+          "value": "high (144Hz+ for FPS)",
+          "is_explicit": false
+        },
+        {
+          "name": "color_accuracy",
+          "value": "good (for gaming visuals)",
+          "is_explicit": false
+        }
+      ]
+    },
+    {
+      "dimension_name": "Performance",
+      "attributes": [
+        {
+          "name": "response_time",
+          "value": "low (1ms preferred for FPS)",
+          "is_explicit": true
+        },
+        {
+          "name": "input_lag",
+          "value": "minimal for competitive gaming",
+          "is_explicit": false
+        }
+      ]
+    },
+    {
+      "dimension_name": "Physical Properties",
+      "attributes": [
+        {
+          "name": "size",
+          "value": "27 inches (typical for 1440p)",
+          "is_explicit": false
+        },
+        {
+          "name": "stand_adjustability",
+          "value": "adjustable for ergonomic gaming",
+          "is_explicit": false
+        }
+      ]
+    },
+    {
+      "dimension_name": "Connectivity",
+      "attributes": [
+        {
+          "name": "hdmi_ports",
+          "value": "multiple ports for console/PC",
+          "is_explicit": false
+        },
+        {
+          "name": "displayport",
+          "value": "required for high refresh rate",
+          "is_explicit": false
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Example 3: Detail Query (State Should NOT Change)
+
+**Conversation Turn 3:**
+> User: "What's the response time on this monitor?"
+
+**Note**: This is a "Product Detail Q&A" query. The conversation state should remain the same except for `user_intention`.
+
+```json
+{
+  "product_category": "monitor",
+  "search_query": "gaming monitor",
+  "user_intention": "product detail Q&A",
+  "inferred_user_preferences": {
+    "usage_scenario": "gaming",
+    "budget": "under $500",
+    "explicit_user_preferences": [
+      "resolution: at least 1440p",
+      "brand: ASUS",
+      "response_time: low response time for FPS games"
+    ],
+    "implicit_user_preferences": [
+      "performance: high (for gaming)",
+      "refresh_rate: high refresh rate for gaming",
+      "input_lag: minimal input lag for FPS games"
+    ]
+  },
+  "inferred_product_attributes": [
+    {
+      "dimension_name": "Visual Representation",
+      "attributes": [
+        {
+          "name": "resolution",
+          "value": "at least 1440p",
+          "is_explicit": true
+        },
+        {
+          "name": "refresh_rate",
+          "value": "high (144Hz+ for FPS)",
+          "is_explicit": false
+        },
+        {
+          "name": "color_accuracy",
+          "value": "good (for gaming visuals)",
+          "is_explicit": false
+        }
+      ]
+    },
+    {
+      "dimension_name": "Performance",
+      "attributes": [
+        {
+          "name": "response_time",
+          "value": "low (1ms preferred for FPS)",
+          "is_explicit": true
+        },
+        {
+          "name": "input_lag",
+          "value": "minimal for competitive gaming",
+          "is_explicit": false
+        }
+      ]
+    },
+    {
+      "dimension_name": "Physical Properties",
+      "attributes": [
+        {
+          "name": "size",
+          "value": "27 inches (typical for 1440p)",
+          "is_explicit": false
+        },
+        {
+          "name": "stand_adjustability",
+          "value": "adjustable for ergonomic gaming",
+          "is_explicit": false
+        }
+      ]
+    },
+    {
+      "dimension_name": "Connectivity",
+      "attributes": [
+        {
+          "name": "hdmi_ports",
+          "value": "multiple ports for console/PC",
+          "is_explicit": false
+        },
+        {
+          "name": "displayport",
+          "value": "required for high refresh rate",
+          "is_explicit": false
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Example 4: Comparison Query (State Should NOT Change)
+
+**Conversation Turn 4:**
+> User: "Can you compare the first two options?"
+
+**Note**: This is a "Product Comparison" query. The conversation state should remain the same except for `user_intention`.
+
+```json
+{
+  "product_category": "monitor",
+  "search_query": "gaming monitor",
+  "user_intention": "product comparison",
   "inferred_user_preferences": {
     "usage_scenario": "gaming",
     "budget": "under $500",
