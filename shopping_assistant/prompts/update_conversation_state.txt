@@ -50,6 +50,12 @@ Examples:
 
 - **Product Comparison**: Only update `user_intention` to "product comparison". **ALL OTHER FIELDS** (product_category, search_query, inferred_user_preferences, inferred_product_attributes) should remain **EXACTLY THE SAME** as the previous conversation state.
 
+### Handling No Search Results
+
+If the conversation context indicates that the previous search returned no products:
+- Simplify the `search_query` by removing all modifiers and using only the `product_category` (e.g., "gaming monitor" → "monitor", "hiking jacket" → "jacket")
+- Keep all other fields (preferences, attributes) the same so filtering can still be applied after getting broader search results
+
 ## Product Category & Search Query
 
 When user is asking for a product recommendation, extract two fields:
@@ -67,14 +73,20 @@ When user is asking for a product recommendation, extract two fields:
   - "beautiful summer dress" → "dress"
 
 ### 2. search_query
-- Preserve the **meaningful modifiers** that affect the product's **function, material, use context, brand, or flavor**.
-- Remove **subjective adjectives** that describe style or quality only (e.g., "beautiful", "nice", "cool", "good", "elegant").
+- Use **simple search terms** that balance findability and specificity
+- **Keep one meaningful modifier** if it describes the product's primary function, use context, or category (e.g., "hiking", "gaming", "apple", "video")
+- Remove subjective adjectives (e.g., "beautiful", "nice", "cool") and detailed specifications (e.g., "144Hz", "1440p", "waterproof")
+- **Avoid overly complex queries** with multiple modifiers or technical specs - these will be captured in `inferred_product_attributes` for filtering
+- **Strategy**: Use natural, common search terms that return results, then filter precisely using attributes
+- **Fallback strategy**: If the previous search query returned no results, simplify to just the `product_category` (e.g., "gaming monitor" → "monitor", "hiking jacket" → "jacket")
 - Examples:
-  - "hiking jacket" → "hiking jacket"
-  - "apple juice" → "apple juice"
-  - "video projector" → "video projector"
-  - "beautiful summer dress" → "summer dress"
-  - "cute running shoes" → "running shoes"
+  - "hiking jacket" → "hiking jacket" (simple, commonly searched)
+  - "gaming monitor with 144Hz" → "gaming monitor" (keep usage context, specs to attributes)
+  - "apple juice" → "apple juice" (brand + product is common)
+  - "video projector" → "video projector" (type modifier is useful)
+  - "beautiful summer dress" → "summer dress" (remove subjective, keep season)
+  - "cute running shoes" → "running shoes" (remove subjective, keep usage)
+  - "waterproof hiking boots for cold weather" → "hiking boots" (one modifier, rest to attributes)
 
 ## Inferred User Preferences
 
@@ -87,8 +99,8 @@ Output should follow this structure:
 "inferred_user_preferences": {
     "usage_scenario": null,
     "budget": null,
-    "explicit_user_preferences": [],
-    "implicit_user_preferences": []
+    "explicit_preferences": [],
+    "implicit_preferences": []
 }
 ```
 
@@ -104,7 +116,7 @@ Output should follow this structure:
 - Examples: `"under $100"`, `"$50-$200"`, `"around $500"`
 - Set to `null` if not mentioned
 
-### 3. explicit_user_preferences
+### 3. explicit_preferences
 
 - List of user preferences **directly stated** in the conversation
 - Each preference should be phrased around a **specific product attribute**
@@ -122,16 +134,16 @@ Examples:
 
 **Decision heuristic**: If the user states a specific product spec, number, brand, or feature requirement → explicit
 
-### 4. implicit_user_preferences
+### 4. implicit_preferences
 
-- List of preferences **inferred** from the user's context, intent, or usage scenario
+- List of attributes **inferred** from the user's context, intent, or usage scenario
 - Each should also correspond to a **specific attribute** when possible
 - Format: `"attribute: value (reason)"` to show inference reasoning
 
 Examples:
 ```json
 [
-  "performance: high (for gaming)",
+  "resolution: more than 1080",
   "durability: suitable for hiking",
   "temperature_resistance: good for cold weather",
   "latency: low latency for competitive gaming"
@@ -142,94 +154,70 @@ Examples:
 
 ##  Inferred Product Attributes
 
-This section explains how to **extract and structure product-related information**.
-The goal is to first understand the product’s inherent characteristics, then map the user’s needs into a **Dimension → Attribute** framework.
-Include both information that the user **explicitly mentions** and that which is **implicitly implied** through the conversation, even if not all dimensions or attributes are directly stated.
+This section explains how to **extract and list product attributes** that matter for the user's needs.
+The goal is to identify specific product features/specifications and their desired values based on what the user has stated or what can be inferred from their usage scenario.
 
 ### Core Concept
 
-A product can be described from **two hierarchical perspectives**:
-
-**Dimension**
-- An abstract *aspect* or *category* used to evaluate a product's performance or experience
-- Examples: *Visual Representation*, *Performance*, *Weather Protection*
-- Purpose: To structure product value or experience space
-
-**Attribute**
-- A specific, measurable *feature* within a dimension
-- Examples: *resolution*, *refresh_rate*, *waterproof*
-- Purpose: To compare or analyze concrete product traits
-
-**Hierarchy**: Dimension → contains multiple → Attributes
+**Product Attribute**
+- A specific, measurable feature or specification of a product
+- Examples: *resolution*, *refresh_rate*, *waterproof*, *weight*, *battery_life*
+- Each attribute has a **name**, **value**, **importance**, and whether it was **explicitly stated** or **inferred**
 
 ### Inference Logic
 
-- Based on the `product_category`, identify and output **4 to 5 key dimensions** that are most relevant to that product type
-- For each dimension, include relevant **attributes** based on:
-  - What the user has **explicitly mentioned** (mark as `is_explicit: true`)
-  - What can be **reasonably inferred** from the conversation context, usage scenario, or product category (mark as `is_explicit: false`)
-- Example: If the product category is "monitor," output dimensions like *Visual Representation*, *Performance*, *Connectivity*, and *Physical Properties* with their relevant attributes
-- Use concise, interpretable text for values (e.g., "at least 1440p", "high", "yes", "lightweight")
-- If a dimension has no relevant attributes to include (neither explicit nor implicit), you may omit it and choose a different dimension
+- Based on the `product_category` and conversation context, identify **6-10 key product attributes** that are most relevant
+- For each attribute, determine:
+  - **name**: The attribute name (e.g., "resolution", "waterproof", "weight")
+  - **value**: The desired value or requirement (e.g., "at least 1440p", "yes", "lightweight")
+  - **importance**: How critical this attribute is for the product type and user's needs
+    - `"critical"`: Essential for the product to function as intended for the user's needs
+    - `"high"`: Very important but not absolutely essential
+    - `"medium"`: Moderately important, nice to have
+    - `"low"`: Minor consideration
+  - **is_explicit**: `true` if user directly mentioned it, `false` if inferred from context
+- Use concise, interpretable text for values (e.g., "at least 1440p", "high", "yes", "lightweight", "under $500")
+- Include both explicit mentions and reasonable inferences based on usage scenario
 
 ### Output Schema
 
-The `inferred_product_attributes` field should contain an **array of 4-5 dimension objects**, where each dimension contains a list of attribute objects:
+The `inferred_product_attributes` field should contain an **array of 6-10 attribute objects**:
 
 ```json
 [
-  {
-    "dimension_name": "Visual Representation",
-    "attributes": [
-      {"name": "resolution", "value": "at least 1440p", "is_explicit": true},
-      {"name": "refresh_rate", "value": "high (120Hz+)", "is_explicit": false}
-    ]
-  },
-  {
-    "dimension_name": "Performance",
-    "attributes": [
-      {"name": "response_time", "value": "low (1ms preferred)", "is_explicit": false}
-    ]
-  }
+  {"name": "resolution", "value": "at least 1440p", "importance": "critical", "is_explicit": true},
+  {"name": "refresh_rate", "value": "high (120Hz+)", "importance": "high", "is_explicit": false},
+  {"name": "response_time", "value": "low (1-5ms)", "importance": "high", "is_explicit": false},
+  {"name": "size", "value": "27 inches", "importance": "medium", "is_explicit": false}
 ]
 ```
 
-### Dimension Examples by Category
+### Common Attributes by Product Category
 
-Use these as guidelines for selecting 4-5 dimensions per product type:
+Use these as guidelines for selecting relevant attributes per product type:
 
-**Jacket (select 4-5 of these):**
-- **Weather Protection**: waterproof, windproof, insulation, breathability
-- **Physical Properties**: weight, size, fit, packability
-- **Design**: color, style, pockets, hood
-- **Durability**: material_quality, tear_resistance, reinforced_areas
-- **Comfort**: mobility, lining_softness, ventilation
+**Monitor:**
+- resolution, refresh_rate, response_time, panel_type, size, brightness, contrast_ratio, color_accuracy, hdmi_ports, displayport, stand_adjustability, price
 
-**Monitor (select 4-5 of these):**
-- **Visual Representation**: resolution, refresh_rate, color_accuracy, panel_type, color_gamut
-- **Physical Properties**: size, weight, bezel, stand_adjustability
-- **Connectivity**: hdmi_ports, displayport, usb_c, usb_hub
-- **Performance**: response_time, input_lag, brightness, contrast_ratio
-- **User Experience**: eye_care_features, osd_menu_quality, ease_of_setup
+**Jacket:**
+- waterproof, windproof, insulation, breathability, weight, packability, material, durability, pockets, hood, fit, color, price
 
-**Laptop (select 4-5 of these):**
-- **Computing Power**: cpu, ram, gpu
-- **Storage**: ssd_size, ssd_type, additional_storage
-- **Display**: resolution, size, panel_type, refresh_rate, brightness
-- **Physical Properties**: weight, thickness, build_quality, battery_life
-- **Connectivity**: ports, wifi, bluetooth
-- **User Experience**: keyboard_quality, trackpad_quality, thermal_management
+**Laptop:**
+- cpu, ram, gpu, ssd_size, screen_size, resolution, battery_life, weight, ports, wifi, keyboard_quality, build_quality, price
 
-### General Fallback Dimensions
+**Shoe:**
+- size, fit, comfort, material, waterproof, breathability, durability, weight, sole_type, cushioning, arch_support, price
 
-For product types not listed above, consider these standard dimensions:
+### General Attribute Categories
 
-- **Performance**: Speed, efficiency, power, capacity metrics
-- **Build Quality**: Materials, durability, construction, craftsmanship
-- **User Experience**: Comfort, ease of use, ergonomics, interface
-- **Design**: Aesthetics, style, color, form factor
-- **Portability**: Size, weight, packability, battery life (if applicable)
-- **Value**: Price point, longevity, warranty, cost-effectiveness
+For any product type, consider attributes from these categories:
+
+- **Performance/Function**: Core capabilities and specifications
+- **Physical Specs**: Size, weight, dimensions, materials
+- **Durability/Quality**: Build quality, longevity, reliability
+- **Comfort/Ergonomics**: User comfort and ease of use
+- **Connectivity/Compatibility**: Ports, compatibility with other devices
+- **Price/Value**: Cost, warranty, value for money
 
 # Scenario-Based Inference Guidelines
 
@@ -237,16 +225,16 @@ When a usage scenario is identified, infer relevant implicit preferences and att
 
 **Examples of scenario-based inference:**
 
-- **Gaming context** → infer: `"performance: high (for gaming)"`, `"latency: low latency for competitive gaming"`
-  - Relevant dimensions might include: Performance (refresh_rate, response_time, input_lag), Visual Representation (resolution, color_accuracy)
+- **Gaming context** → infer preferences like `"performance: high (for gaming)"`, `"latency: low latency for competitive gaming"`
+  - Relevant attributes might include: refresh_rate (high, 144Hz+), response_time (low, 1-5ms), input_lag (minimal), resolution (1440p or higher)
 
-- **Outdoor/hiking context** → infer: `"durability: suitable for hiking"`, `"temperature_resistance: good for varying conditions"`
-  - Relevant dimensions might include: Weather Protection (waterproof, windproof, breathable), Physical Properties (lightweight, packable, durable)
+- **Outdoor/hiking context** → infer preferences like `"durability: suitable for hiking"`, `"temperature_resistance: good for varying conditions"`
+  - Relevant attributes might include: waterproof (yes), windproof (yes), breathability (high), weight (lightweight), packability (compact)
 
-- **Professional/work context** → infer: `"reliability: suitable for daily professional use"`, `"ergonomics: comfortable for extended use"`
-  - Relevant dimensions might include: Performance (reliable, efficient), Physical Properties (build_quality, ergonomics), User Experience (ease of use)
+- **Professional/work context** → infer preferences like `"reliability: suitable for daily professional use"`, `"ergonomics: comfortable for extended use"`
+  - Relevant attributes might include: build_quality (high), battery_life (long), keyboard_quality (good), reliability (high), warranty (comprehensive)
 
-- **Budget-conscious language** → consider Value dimension and prioritize cost-effectiveness in the usage context
+- **Budget-conscious language** → consider price as a critical attribute and prioritize cost-effectiveness in the usage context
 
 Apply similar reasoning to any other scenarios based on the typical needs and constraints of that use case.
 
@@ -263,16 +251,11 @@ Return ONLY a valid JSON object (no additional text before or after):
   "inferred_user_preferences": {
     "usage_scenario": "string or null",
     "budget": "string or null",
-    "explicit_user_preferences": ["attribute: value", ...],
-    "implicit_user_preferences": ["attribute: value (reason)", ...]
+    "explicit_preferences": ["attribute: value", ...],
+    "implicit_preferences": ["attribute: value (reason)", ...]
   },
   "inferred_product_attributes": [
-    {
-      "dimension_name": "string",
-      "attributes": [
-        {"name": "string", "value": "string", "is_explicit": true}
-      ]
-    }
+    {"name": "string", "value": "string", "importance": "critical|high|medium|low", "is_explicit": true}
   ]
 }
 ```
@@ -281,8 +264,9 @@ Return ONLY a valid JSON object (no additional text before or after):
 - Set fields to `null` or empty arrays `[]` if no relevant information exists
 - Maintain consistency across conversation turns
 - Update fields when new information contradicts previous information
-- **Always output 4-5 dimensions** in `inferred_product_attributes` based on the product category and conversation context
-- Each dimension should include relevant attributes (both explicit and implicit when applicable)
+- **Always output 6-10 product attributes** in `inferred_product_attributes` based on the product category and conversation context
+- Include both explicit mentions and reasonable inferences based on usage scenario
+- Assign appropriate importance levels based on the user's needs and product type
 - **For "product detail Q&A" and "product comparison" intentions**: Only change the `user_intention` field. Keep all other fields (product_category, search_query, preferences, attributes) identical to the previous state
 
 
@@ -290,7 +274,6 @@ Return ONLY a valid JSON object (no additional text before or after):
 
 ## Example 1: Initial Product Request
 
-**Conversation Turn 1:**
 > User: "I'm looking for a gaming monitor under $500. I need at least 1440p resolution."
 
 ```json
@@ -301,77 +284,21 @@ Return ONLY a valid JSON object (no additional text before or after):
   "inferred_user_preferences": {
     "usage_scenario": "gaming",
     "budget": "under $500",
-    "explicit_user_preferences": [
-      "resolution: at least 1440p"
-    ],
-    "implicit_user_preferences": [
-      "performance: high (for gaming)",
-      "refresh_rate: high refresh rate for gaming"
-    ]
+    "explicit_preferences": ["resolution: at least 1440p"],
+    "implicit_preferences": ["performance: high (for gaming)"]
   },
   "inferred_product_attributes": [
-    {
-      "dimension_name": "Visual Representation",
-      "attributes": [
-        {
-          "name": "resolution",
-          "value": "at least 1440p",
-          "is_explicit": true
-        },
-        {
-          "name": "refresh_rate",
-          "value": "high (120Hz+)",
-          "is_explicit": false
-        },
-        {
-          "name": "color_accuracy",
-          "value": "good (for gaming visuals)",
-          "is_explicit": false
-        }
-      ]
-    },
-    {
-      "dimension_name": "Performance",
-      "attributes": [
-        {
-          "name": "response_time",
-          "value": "low (1-5ms)",
-          "is_explicit": false
-        },
-        {
-          "name": "input_lag",
-          "value": "minimal",
-          "is_explicit": false
-        }
-      ]
-    },
-    {
-      "dimension_name": "Physical Properties",
-      "attributes": [
-        {
-          "name": "size",
-          "value": "27 inches (typical for 1440p)",
-          "is_explicit": false
-        }
-      ]
-    },
-    {
-      "dimension_name": "Connectivity",
-      "attributes": [
-        {
-          "name": "hdmi_ports",
-          "value": "multiple ports preferred",
-          "is_explicit": false
-        }
-      ]
-    }
+    {"name": "resolution", "value": "at least 1440p", "importance": "critical", "is_explicit": true},
+    {"name": "refresh_rate", "value": "high (120Hz+)", "importance": "high", "is_explicit": false},
+    {"name": "response_time", "value": "low (1-5ms)", "importance": "high", "is_explicit": false},
+    {"name": "size", "value": "27 inches", "importance": "medium", "is_explicit": false},
+    {"name": "price", "value": "under $500", "importance": "critical", "is_explicit": true}
   ]
 }
 ```
 
-## Example 2: Adding More Requirements
+## Example 2: Adding Requirements
 
-**Conversation Turn 2:**
 > User: "I prefer ASUS brand and need low response time for FPS games."
 
 ```json
@@ -382,275 +309,33 @@ Return ONLY a valid JSON object (no additional text before or after):
   "inferred_user_preferences": {
     "usage_scenario": "gaming",
     "budget": "under $500",
-    "explicit_user_preferences": [
+    "explicit_preferences": [
       "resolution: at least 1440p",
       "brand: ASUS",
-      "response_time: low response time for FPS games"
+      "response_time: low for FPS games"
     ],
-    "implicit_user_preferences": [
-      "performance: high (for gaming)",
-      "refresh_rate: high refresh rate for gaming",
-      "input_lag: minimal input lag for FPS games"
-    ]
+    "implicit_preferences": ["performance: high (for gaming)", "input_lag: minimal"]
   },
   "inferred_product_attributes": [
-    {
-      "dimension_name": "Visual Representation",
-      "attributes": [
-        {
-          "name": "resolution",
-          "value": "at least 1440p",
-          "is_explicit": true
-        },
-        {
-          "name": "refresh_rate",
-          "value": "high (144Hz+ for FPS)",
-          "is_explicit": false
-        },
-        {
-          "name": "color_accuracy",
-          "value": "good (for gaming visuals)",
-          "is_explicit": false
-        }
-      ]
-    },
-    {
-      "dimension_name": "Performance",
-      "attributes": [
-        {
-          "name": "response_time",
-          "value": "low (1ms preferred for FPS)",
-          "is_explicit": true
-        },
-        {
-          "name": "input_lag",
-          "value": "minimal for competitive gaming",
-          "is_explicit": false
-        }
-      ]
-    },
-    {
-      "dimension_name": "Physical Properties",
-      "attributes": [
-        {
-          "name": "size",
-          "value": "27 inches (typical for 1440p)",
-          "is_explicit": false
-        },
-        {
-          "name": "stand_adjustability",
-          "value": "adjustable for ergonomic gaming",
-          "is_explicit": false
-        }
-      ]
-    },
-    {
-      "dimension_name": "Connectivity",
-      "attributes": [
-        {
-          "name": "hdmi_ports",
-          "value": "multiple ports for console/PC",
-          "is_explicit": false
-        },
-        {
-          "name": "displayport",
-          "value": "required for high refresh rate",
-          "is_explicit": false
-        }
-      ]
-    }
+    {"name": "resolution", "value": "at least 1440p", "importance": "critical", "is_explicit": true},
+    {"name": "brand", "value": "ASUS", "importance": "high", "is_explicit": true},
+    {"name": "response_time", "value": "low (1ms preferred)", "importance": "critical", "is_explicit": true},
+    {"name": "refresh_rate", "value": "high (144Hz+)", "importance": "critical", "is_explicit": false},
+    {"name": "input_lag", "value": "minimal", "importance": "high", "is_explicit": false},
+    {"name": "size", "value": "27 inches", "importance": "medium", "is_explicit": false},
+    {"name": "price", "value": "under $500", "importance": "critical", "is_explicit": true}
   ]
 }
 ```
 
-## Example 3: Detail Query (State Should NOT Change)
+## Example 3: Detail Q&A (No State Change)
 
-**Conversation Turn 3:**
 > User: "What's the response time on this monitor?"
 
-**Note**: This is a "Product Detail Q&A" query. The conversation state should remain the same except for `user_intention`.
+**Important**: For "product detail Q&A", only change `user_intention` to `"product detail Q&A"`. All other fields remain identical to previous state.
 
-```json
-{
-  "product_category": "monitor",
-  "search_query": "gaming monitor",
-  "user_intention": "product detail Q&A",
-  "inferred_user_preferences": {
-    "usage_scenario": "gaming",
-    "budget": "under $500",
-    "explicit_user_preferences": [
-      "resolution: at least 1440p",
-      "brand: ASUS",
-      "response_time: low response time for FPS games"
-    ],
-    "implicit_user_preferences": [
-      "performance: high (for gaming)",
-      "refresh_rate: high refresh rate for gaming",
-      "input_lag: minimal input lag for FPS games"
-    ]
-  },
-  "inferred_product_attributes": [
-    {
-      "dimension_name": "Visual Representation",
-      "attributes": [
-        {
-          "name": "resolution",
-          "value": "at least 1440p",
-          "is_explicit": true
-        },
-        {
-          "name": "refresh_rate",
-          "value": "high (144Hz+ for FPS)",
-          "is_explicit": false
-        },
-        {
-          "name": "color_accuracy",
-          "value": "good (for gaming visuals)",
-          "is_explicit": false
-        }
-      ]
-    },
-    {
-      "dimension_name": "Performance",
-      "attributes": [
-        {
-          "name": "response_time",
-          "value": "low (1ms preferred for FPS)",
-          "is_explicit": true
-        },
-        {
-          "name": "input_lag",
-          "value": "minimal for competitive gaming",
-          "is_explicit": false
-        }
-      ]
-    },
-    {
-      "dimension_name": "Physical Properties",
-      "attributes": [
-        {
-          "name": "size",
-          "value": "27 inches (typical for 1440p)",
-          "is_explicit": false
-        },
-        {
-          "name": "stand_adjustability",
-          "value": "adjustable for ergonomic gaming",
-          "is_explicit": false
-        }
-      ]
-    },
-    {
-      "dimension_name": "Connectivity",
-      "attributes": [
-        {
-          "name": "hdmi_ports",
-          "value": "multiple ports for console/PC",
-          "is_explicit": false
-        },
-        {
-          "name": "displayport",
-          "value": "required for high refresh rate",
-          "is_explicit": false
-        }
-      ]
-    }
-  ]
-}
-```
+## Example 4: Comparison (No State Change)
 
-## Example 4: Comparison Query (State Should NOT Change)
-
-**Conversation Turn 4:**
 > User: "Can you compare the first two options?"
 
-**Note**: This is a "Product Comparison" query. The conversation state should remain the same except for `user_intention`.
-
-```json
-{
-  "product_category": "monitor",
-  "search_query": "gaming monitor",
-  "user_intention": "product comparison",
-  "inferred_user_preferences": {
-    "usage_scenario": "gaming",
-    "budget": "under $500",
-    "explicit_user_preferences": [
-      "resolution: at least 1440p",
-      "brand: ASUS",
-      "response_time: low response time for FPS games"
-    ],
-    "implicit_user_preferences": [
-      "performance: high (for gaming)",
-      "refresh_rate: high refresh rate for gaming",
-      "input_lag: minimal input lag for FPS games"
-    ]
-  },
-  "inferred_product_attributes": [
-    {
-      "dimension_name": "Visual Representation",
-      "attributes": [
-        {
-          "name": "resolution",
-          "value": "at least 1440p",
-          "is_explicit": true
-        },
-        {
-          "name": "refresh_rate",
-          "value": "high (144Hz+ for FPS)",
-          "is_explicit": false
-        },
-        {
-          "name": "color_accuracy",
-          "value": "good (for gaming visuals)",
-          "is_explicit": false
-        }
-      ]
-    },
-    {
-      "dimension_name": "Performance",
-      "attributes": [
-        {
-          "name": "response_time",
-          "value": "low (1ms preferred for FPS)",
-          "is_explicit": true
-        },
-        {
-          "name": "input_lag",
-          "value": "minimal for competitive gaming",
-          "is_explicit": false
-        }
-      ]
-    },
-    {
-      "dimension_name": "Physical Properties",
-      "attributes": [
-        {
-          "name": "size",
-          "value": "27 inches (typical for 1440p)",
-          "is_explicit": false
-        },
-        {
-          "name": "stand_adjustability",
-          "value": "adjustable for ergonomic gaming",
-          "is_explicit": false
-        }
-      ]
-    },
-    {
-      "dimension_name": "Connectivity",
-      "attributes": [
-        {
-          "name": "hdmi_ports",
-          "value": "multiple ports for console/PC",
-          "is_explicit": false
-        },
-        {
-          "name": "displayport",
-          "value": "required for high refresh rate",
-          "is_explicit": false
-        }
-      ]
-    }
-  ]
-}
-```
+**Important**: For "product comparison", only change `user_intention` to `"product comparison"`. All other fields remain identical to previous state.

@@ -68,8 +68,8 @@ class Session:
             "inferred_user_preferences": {
                 "usage_scenario": None,
                 "budget": None,
-                "explicit_user_preferences": [],
-                "implicit_user_preferences": [],
+                "explicit_preferences": [],
+                "implicit_preferences": [],
             },
             "inferred_product_attributes": []  # Array of dimension objects per prompt spec
         }
@@ -390,52 +390,86 @@ class Session:
             user_prefs = self.conversation_state["inferred_user_preferences"]
             
             # Format explicit preferences
-            explicit_prefs = user_prefs["explicit_user_preferences"]
+            explicit_prefs = user_prefs["explicit_preferences"]
             explicit_lines = []
             for pref in explicit_prefs:
                 explicit_lines.append(f"  - {pref}")
             explicit_text = '\n'.join(explicit_lines) if explicit_lines else '  (none)'
             
             # Format implicit preferences
-            implicit_prefs = user_prefs["implicit_user_preferences"]
+            implicit_prefs = user_prefs["implicit_preferences"]
             implicit_lines = []
             for pref in implicit_prefs:
                 implicit_lines.append(f"  - {pref}")
             implicit_text = '\n'.join(implicit_lines) if implicit_lines else '  (none)'
             
-            # Format product attributes (array of dimension objects)
+            # Format product attributes (flat array of attribute objects)
             prod_attrs = self.conversation_state["inferred_product_attributes"]
             attributes_text = ""
             if prod_attrs and isinstance(prod_attrs, list):
                 attr_lines = []
-                for dimension in prod_attrs:
-                    dim_name = dimension["dimension_name"]
-                    attr_lines.append(f"  {dim_name}:")
-                    for attr in dimension["attributes"]:
-                        attr_name = attr["name"]
-                        attr_value = attr["value"]
-                        is_explicit = '✓' if attr["is_explicit"] else '~'
-                        attr_lines.append(f"    [{is_explicit}] {attr_name}: {attr_value}")
+                for attr in prod_attrs:
+                    attr_name = attr["name"]
+                    attr_value = attr["value"]
+                    importance = attr.get("importance", "medium")
+                    is_explicit = '✓' if attr["is_explicit"] else '~'
+                    attr_lines.append(f"  [{is_explicit}][{importance}] {attr_name}: {attr_value}")
                 attributes_text = '\n'.join(attr_lines)
             else:
                 attributes_text = "  (none)"
             
-            state_context = f"""<conversation_state>
-Product Category: {self.conversation_state['product_category'] or '(none)'}
-Search Query: {self.conversation_state['search_query'] or '(none)'}
-User Intention: {self.conversation_state['user_intention'] or '(none)'}
+            # Group attributes by importance
+            critical_attrs = [attr for attr in prod_attrs if attr.get("importance") == "critical"]
+            high_attrs = [attr for attr in prod_attrs if attr.get("importance") == "high"]
+            medium_attrs = [attr for attr in prod_attrs if attr.get("importance") == "medium"]
+            low_attrs = [attr for attr in prod_attrs if attr.get("importance") == "low"]
+            
+            # Format grouped attributes
+            grouped_attrs_text = ""
+            if critical_attrs:
+                grouped_attrs_text += "  Critical Requirements:\n"
+                for attr in critical_attrs:
+                    marker = '✓' if attr["is_explicit"] else '~'
+                    grouped_attrs_text += f"    [{marker}] {attr['name']}: {attr['value']}\n"
+            if high_attrs:
+                grouped_attrs_text += "  High Priority:\n"
+                for attr in high_attrs:
+                    marker = '✓' if attr["is_explicit"] else '~'
+                    grouped_attrs_text += f"    [{marker}] {attr['name']}: {attr['value']}\n"
+            if medium_attrs:
+                grouped_attrs_text += "  Medium Priority:\n"
+                for attr in medium_attrs:
+                    marker = '✓' if attr["is_explicit"] else '~'
+                    grouped_attrs_text += f"    [{marker}] {attr['name']}: {attr['value']}\n"
+            if low_attrs:
+                grouped_attrs_text += "  Nice to Have:\n"
+                for attr in low_attrs:
+                    marker = '✓' if attr["is_explicit"] else '~'
+                    grouped_attrs_text += f"    [{marker}] {attr['name']}: {attr['value']}\n"
+            
+            grouped_attrs_text = grouped_attrs_text.rstrip('\n') if grouped_attrs_text else "  (none)"
+            
+            state_context = f"""<user_needs_summary>
+This is an automatically inferred summary of what the user is looking for. Use this to guide your product recommendations and responses.
 
-[User Preferences]
-Usage Scenario: {user_prefs['usage_scenario'] or '(none)'}
-Budget: {user_prefs['budget'] or '(none)'}
-Explicit Preferences (user stated):
+Product Type: {self.conversation_state['product_category'] or '(none)'}
+Search Query: {self.conversation_state['search_query'] or '(none)'}
+Current Intent: {self.conversation_state['user_intention'] or '(none)'}
+
+Usage Context:
+- Usage Scenario: {user_prefs['usage_scenario'] or '(none)'}
+- Budget: {user_prefs['budget'] or '(none)'}
+
+User Preferences (What the user wants):
+Explicitly Stated:
 {explicit_text}
-Implicit Preferences (inferred):
+Inferred from Context:
 {implicit_text}
 
-[Inferred Product Attributes]
-{attributes_text}
-</conversation_state>"""
+Product Attributes (Specific requirements, prioritized):
+Legend: [✓ = user stated, ~ = inferred]
+{grouped_attrs_text}
+</user_needs_summary>"""
             
             logger.info(f"Conversation state context:\n{state_context}")
             
