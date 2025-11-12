@@ -119,7 +119,7 @@ class Session:
             raise
 
     async def search(self, query: str) -> str:
-        """Search for products using Magento REST API. Returns first 50 products with core info only."""
+        """Search for products using Magento REST API. Returns first 100 products with core info only."""
         import aiohttp
         import urllib.parse
         
@@ -148,7 +148,7 @@ class Session:
             params[f"searchCriteria[filter_groups][{idx}][filters][0][condition_type]"] = "like"
         
         # Pagination
-        params["searchCriteria[pageSize]"] = "50"
+        params["searchCriteria[pageSize]"] = "100"
         params["searchCriteria[currentPage]"] = "1"
         
         # Authorization header with fresh token
